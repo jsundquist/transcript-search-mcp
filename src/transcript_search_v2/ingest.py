@@ -8,24 +8,30 @@ one. Only complete lines are parsed -- a trailing line with no newline yet
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from transcript_search_v2 import config, db
-from transcript_search_v2.extract import Chunk, extract_chunks, extract_llm_call
-from transcript_search_v2.schema import OtherRecord, TranscriptRecord, parse_line
+from transcript_search_v2 import db
+from transcript_search_v2.plugins.base import SourcePlugin
+from transcript_search_v2.plugins.claude_code import ClaudeCodePlugin
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PLUGINS: list[SourcePlugin] = [ClaudeCodePlugin()]
 
-def discover_files(root: Path | None = None) -> list[Path]:
-    root = root or config.WATCH_ROOT
-    if not root.exists():
-        return []
-    return sorted(root.glob("*/*.jsonl"))
+
+def discover_files(root: Path | None = None, plugins: list[SourcePlugin] | None = None) -> list[Path]:
+    plugins = plugins if plugins is not None else DEFAULT_PLUGINS
+    files: list[Path] = []
+    for plugin in plugins:
+        roots = [root] if root is not None else plugin.watch_dirs()
+        for r in roots:
+            if not r.exists():
+                continue
+            files.extend(p for p in sorted(r.glob("*/*")) if p.is_file() and plugin.is_mine(p))
+    return files
 
 
 class _ToolNameCache:
@@ -81,7 +87,18 @@ def _read_new_complete_lines(path: Path, byte_offset: int) -> tuple[list[str], i
     return lines, new_offset
 
 
-def ingest_file(conn: sqlite3.Connection, path: Path) -> IngestResult:
+def _plugin_for(path: Path, plugins: list[SourcePlugin]) -> SourcePlugin:
+    for plugin in plugins:
+        if plugin.is_mine(path):
+            return plugin
+    return plugins[0]
+
+
+def ingest_file(
+    conn: sqlite3.Connection, path: Path, plugins: list[SourcePlugin] | None = None
+) -> IngestResult:
+    plugins = plugins if plugins is not None else DEFAULT_PLUGINS
+    plugin = _plugin_for(path, plugins)
     path_str = str(path)
     session_id = path.stem
     project_dir = path.parent.name
@@ -118,47 +135,33 @@ def ingest_file(conn: sqlite3.Connection, path: Path) -> IngestResult:
         # so source_line_no stays a true physical line number for get_context to re-read.
         current_line_no = lines_read_so_far
 
-        if not raw_line.strip():
-            continue
-
-        try:
-            raw = json.loads(raw_line)
-        except json.JSONDecodeError:
-            skipped += 1
-            logger.warning("skipping malformed JSON line in %s", path_str)
-            continue
-
-        try:
-            record = parse_line(raw)
-        except Exception:
-            skipped += 1
-            logger.warning("skipping line failing schema validation in %s", path_str)
-            continue
-
-        if isinstance(record, OtherRecord):
-            continue
-
-        record: TranscriptRecord
-        project_cwd = record.cwd or project_cwd
-        session_timestamps.append(record.timestamp)
-        session_message_count += 1
-        git_branch = record.gitBranch or git_branch
-
-        chunks = extract_chunks(
-            record,
+        result = plugin.parse_and_extract(
+            raw_line,
             source_line_no=current_line_no,
             project_cwd_fallback=project_dir,
             resolve_tool_name=tool_names.resolve,
         )
-        for chunk in chunks:
+
+        if result.kind == "malformed":
+            skipped += 1
+            continue
+        if result.kind == "skip":
+            continue
+
+        project_cwd = result.project_cwd or project_cwd
+        if result.timestamp:
+            session_timestamps.append(result.timestamp)
+        session_message_count += 1
+        git_branch = result.git_branch or git_branch
+
+        for chunk in result.chunks:
             if chunk.block_type == "tool_use" and chunk.tool_use_id and chunk.tool_name:
                 tool_names.record(chunk.tool_use_id, chunk.tool_name)
             db.upsert_chunk(conn, chunk)
             chunks_added += 1
 
-        llm_call = extract_llm_call(record, project_cwd_fallback=project_dir)
-        if llm_call is not None:
-            db.upsert_llm_call(conn, llm_call)
+        if result.llm_call is not None:
+            db.upsert_llm_call(conn, result.llm_call)
 
     if session_timestamps:
         db.upsert_session(
@@ -179,16 +182,22 @@ def ingest_file(conn: sqlite3.Connection, path: Path) -> IngestResult:
     return IngestResult(path_str, len(lines), chunks_added, skipped)
 
 
-def backfill(conn: sqlite3.Connection, root: Path | None = None, trigger: str = "backfill") -> dict:
+def backfill(
+    conn: sqlite3.Connection,
+    root: Path | None = None,
+    trigger: str = "backfill",
+    plugins: list[SourcePlugin] | None = None,
+) -> dict:
+    plugins = plugins if plugins is not None else DEFAULT_PLUGINS
     run_id = db.start_run(conn, trigger)
-    files = discover_files(root)
+    files = discover_files(root, plugins)
     files_touched = 0
     chunks_added = 0
     error: str | None = None
     try:
         for path in files:
             try:
-                result = ingest_file(conn, path)
+                result = ingest_file(conn, path, plugins)
             except Exception as exc:  # noqa: BLE001 -- never abort the whole backfill on one bad file
                 logger.exception("failed to ingest %s", path)
                 db.mark_file_error(conn, str(path), str(exc))
