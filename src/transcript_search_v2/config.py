@@ -42,6 +42,17 @@ MEDIUM_SIGNAL_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}
 WATCH_DEBOUNCE_SECONDS = 0.3
 EMBED_BATCH_SIZE = 32
 
+# --- Retention ---------------------------------------------------------------
+# No pruning ever runs automatically -- this is only a default suggestion for
+# the prune() admin tool's older_than_days param when the caller doesn't
+# specify one. None means "no default window"; the caller must pass an
+# explicit value to prune anything.
+DEFAULT_RETENTION_DAYS = (
+    int(os.environ["TRANSCRIPT_SEARCH_RETENTION_DAYS"])
+    if "TRANSCRIPT_SEARCH_RETENTION_DAYS" in os.environ
+    else None
+)
+
 # --- Embedding -------------------------------------------------------------
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384

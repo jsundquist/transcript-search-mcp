@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from mcp.server.mcpserver import MCPServer
 
-from transcript_search_v2 import db
+from transcript_search_v2 import config, db
 from transcript_search_v2.tools import admin, analytics, health, search, temporal
 from transcript_search_v2.watcher import watch_loop
 from transcript_search_v2.writer import Writer
@@ -200,6 +200,27 @@ def doctor(fix: bool = False) -> dict:
     empty, drain the embedding backlog, quarantine+rebuild a corrupt db.
     Use this when the server is registered but searches return nothing."""
     return health.doctor(fix)
+
+
+@mcp.tool()
+def prune(
+    older_than_days: int | None = None,
+    project: str | None = None,
+    dry_run: bool = True,
+) -> dict:
+    """Delete chunks and LLM-call records older than older_than_days (falls
+    back to TRANSCRIPT_SEARCH_RETENTION_DAYS if unset; raises if neither is
+    given), optionally scoped to a project. dry_run=True (the default) only
+    reports what would be deleted -- pass dry_run=False to actually delete.
+    Deleted content will NOT reappear on a later reindex()/backfill even if
+    its source file is unchanged, since the ingestion cursor already passed
+    those lines; files/sessions bookkeeping is left untouched."""
+    days = older_than_days if older_than_days is not None else config.DEFAULT_RETENTION_DAYS
+    if days is None:
+        raise ValueError(
+            "older_than_days must be given (no TRANSCRIPT_SEARCH_RETENTION_DAYS default is set)"
+        )
+    return admin.prune(days, project, dry_run)
 
 
 @mcp.tool()
