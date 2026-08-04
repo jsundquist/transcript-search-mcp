@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from mcp.server.mcpserver import MCPServer
 
 from transcript_search_v2 import db
-from transcript_search_v2.tools import admin, analytics, search, temporal
+from transcript_search_v2.tools import admin, analytics, health, search, temporal
 from transcript_search_v2.watcher import watch_loop
 from transcript_search_v2.writer import Writer
 
@@ -182,6 +182,17 @@ def get_usage(
     "session", or "day". Answers "what did I spend today" / "which sessions
     were expensive"."""
     return analytics.get_usage(group_by, project, date_from, date_to, limit)
+
+
+@mcp.tool()
+def doctor(fix: bool = False) -> dict:
+    """Environment and index health check beyond status()/coverage(): Python/
+    dependency/sqlite-extension checks, db integrity, embedding backlog, and
+    cost-anomaly alerts (today's spend vs 7-day average, expensive sessions).
+    With fix=True, also attempts auto-repairs: backfill if the index is
+    empty, drain the embedding backlog, quarantine+rebuild a corrupt db.
+    Use this when the server is registered but searches return nothing."""
+    return health.doctor(fix)
 
 
 @mcp.tool()
