@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from transcript_search_v2 import db, embed, ingest
 from transcript_search_v2.tools import admin
 
@@ -94,6 +96,12 @@ def test_prune_project_filter_scopes_deletion(conn, tmp_env):
 
     result_none = admin.prune(older_than_days=30, project="nonexistent-project", dry_run=True, conn=conn)
     assert result_none["chunks_to_delete"] == 0
+
+
+def test_prune_rejects_non_positive_older_than_days(conn, tmp_env):
+    for bad_value in (0, -1, -100):
+        with pytest.raises(ValueError):
+            admin.prune(older_than_days=bad_value, dry_run=True, conn=conn)
 
 
 def test_prune_deletes_llm_calls_older_than_cutoff(conn, tmp_env):

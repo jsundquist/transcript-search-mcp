@@ -97,6 +97,9 @@ def prune(
     them. Only re-run reindex() after resetting bytes_read if you actually
     want pruned lines re-indexed.
     """
+    if older_than_days < 1:
+        raise ValueError(f"older_than_days must be >= 1, got {older_than_days}")
+
     own_conn = conn is None
     conn = conn or db.connect(read_only=False)
     try:
