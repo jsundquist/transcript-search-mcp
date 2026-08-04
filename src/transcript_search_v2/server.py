@@ -109,12 +109,14 @@ def hybrid_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    rerank: bool = True,
 ) -> list[dict]:
-    """Combined keyword + semantic search (reciprocal-rank fusion). Default
-    choice when you're not sure whether a literal or a meaning-based match is
-    more likely to find what you're after."""
+    """Combined keyword + semantic search (reciprocal-rank fusion), then
+    reranked by signal/recency by default. Default choice when you're not
+    sure whether a literal or a meaning-based match is more likely to find
+    what you're after."""
     return search.hybrid_search(
-        query, project, date_from, date_to, include_low_signal, include_sidechains, limit
+        query, project, date_from, date_to, include_low_signal, include_sidechains, limit, rerank
     )
 
 

@@ -140,6 +140,27 @@ def test_semantic_search_finds_paraphrase_without_literal_overlap(conn, tmp_env)
     assert search.keyword_search(paraphrase, conn=conn) == []
 
 
+def test_hybrid_search_reranked_results_carry_rerank_score(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+
+    results = search.hybrid_search("zorbnax_widget", conn=conn)
+    assert results
+    assert all("rerank_score" in r for r in results)
+    assert all("score" in r for r in results)  # original RRF score preserved
+
+
+def test_hybrid_search_rerank_false_skips_rerank_score(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+
+    results = search.hybrid_search("zorbnax_widget", rerank=False, conn=conn)
+    assert results
+    assert all("rerank_score" not in r for r in results)
+
+
 def test_get_context_reads_full_untruncated_surrounding_messages(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "tool_use_result.jsonl")
     ingest.backfill(conn)

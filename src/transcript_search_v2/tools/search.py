@@ -6,7 +6,7 @@ import sqlite3
 
 import sqlite_vec
 
-from transcript_search_v2 import db, embed, fuzzy
+from transcript_search_v2 import db, embed, fuzzy, rerank as rerank_module
 from transcript_search_v2.timeutil import local_range_to_utc
 
 
@@ -201,11 +201,19 @@ def hybrid_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    rerank: bool = True,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
     """Reciprocal-rank fusion of keyword_search and semantic_search. Default
     tool to reach for when it's unclear whether a literal or a semantic match
-    is more likely to find what you're after."""
+    is more likely to find what you're after.
+
+    rerank: after RRF fusion, re-score the fused candidates by RRF-score *
+    signal-weight * recency-decay before truncating to `limit` -- RRF alone
+    has no notion that a routine tool_result from months ago usually matters
+    less than a high-signal chunk from yesterday at the same fused rank.
+    Reranked results carry a "rerank_score" key alongside the RRF "score".
+    """
     own_conn = conn is None
     conn = conn or db.connect(read_only=True)
     try:
@@ -225,16 +233,24 @@ def hybrid_search(
         scores: dict[str, float] = {}
         by_id: dict[str, dict] = {}
         for results in (kw_results, sem_results):
-            for rank, r in enumerate(results):
-                scores[r["chunk_id"]] = scores.get(r["chunk_id"], 0.0) + 1.0 / (rrf_k + rank + 1)
+            for rnk, r in enumerate(results):
+                scores[r["chunk_id"]] = scores.get(r["chunk_id"], 0.0) + 1.0 / (rrf_k + rnk + 1)
                 by_id[r["chunk_id"]] = r
 
-        ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:limit]
+        # keep a wider pool than `limit` pre-rerank, so signal/recency can
+        # pull a lower-RRF-rank result above a higher one within the pool.
+        pool_size = max(limit * 3, limit) if rerank else limit
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:pool_size]
         out = []
         for chunk_id, score in ranked:
             result = dict(by_id[chunk_id])
             result["score"] = score
             out.append(result)
+
+        if rerank:
+            out = rerank_module.rerank(out, limit=limit)
+        else:
+            out = out[:limit]
         return out
     finally:
         if own_conn:
