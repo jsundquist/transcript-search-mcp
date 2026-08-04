@@ -60,6 +60,25 @@ async def lifespan(_server: MCPServer) -> AsyncIterator[AppContext]:
 mcp = MCPServer("transcript-search-v2", lifespan=lifespan)
 
 
+# Bounds enforced at the tool boundary so a caller (human or LLM) passing a
+# negative or absurdly large value can't request an unbounded result set --
+# SQLite treats a negative LIMIT as "no limit", so this isn't just tidiness.
+_MIN_LIMIT, _MAX_LIMIT = 1, 500
+_MAX_WINDOW = 100
+
+
+def _clamp_limit(limit: int) -> int:
+    return max(_MIN_LIMIT, min(_MAX_LIMIT, limit))
+
+
+def _clamp_offset(offset: int) -> int:
+    return max(0, offset)
+
+
+def _clamp_window(n: int) -> int:
+    return max(0, min(_MAX_WINDOW, n))
+
+
 @mcp.tool()
 def keyword_search(
     query: str,
@@ -70,16 +89,18 @@ def keyword_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
     fuzzy_fallback: bool = True,
 ) -> list[dict]:
     """Full-text keyword/phrase search over your Claude Code transcripts.
     Quote the query (e.g. '"exact phrase"') for phrase search. If a strict
     search finds nothing, fuzzy_fallback retries once with typo'd terms
     corrected against the indexed vocabulary (results carry
-    fuzzy_corrected_query when this kicks in)."""
+    fuzzy_corrected_query when this kicks in). limit is capped at 500;
+    offset pages past it."""
     return search.keyword_search(
         query, project, date_from, date_to, roles, include_low_signal, include_sidechains,
-        limit, fuzzy_fallback,
+        _clamp_limit(limit), _clamp_offset(offset), fuzzy_fallback,
     )
 
 
@@ -92,11 +113,14 @@ def semantic_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
 ) -> list[dict]:
     """Meaning-based search over your Claude Code transcripts -- finds
-    relevant content even without literal keyword overlap."""
+    relevant content even without literal keyword overlap. limit is capped
+    at 500; offset pages past it."""
     return search.semantic_search(
-        query, project, date_from, date_to, include_low_signal, include_sidechains, limit
+        query, project, date_from, date_to, include_low_signal, include_sidechains,
+        _clamp_limit(limit), _clamp_offset(offset),
     )
 
 
@@ -109,14 +133,16 @@ def hybrid_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
     rerank: bool = True,
 ) -> list[dict]:
     """Combined keyword + semantic search (reciprocal-rank fusion), then
     reranked by signal/recency by default. Default choice when you're not
     sure whether a literal or a meaning-based match is more likely to find
-    what you're after."""
+    what you're after. limit is capped at 500; offset pages past it."""
     return search.hybrid_search(
-        query, project, date_from, date_to, include_low_signal, include_sidechains, limit, rerank
+        query, project, date_from, date_to, include_low_signal, include_sidechains,
+        _clamp_limit(limit), _clamp_offset(offset), rerank,
     )
 
 
@@ -126,10 +152,12 @@ def list_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[dict]:
     """List Claude Code sessions, most recent first, optionally filtered by
-    project (substring match) and/or date range."""
-    return temporal.list_sessions(project, date_from, date_to, limit)
+    project (substring match) and/or date range. limit is capped at 500;
+    offset pages past it."""
+    return temporal.list_sessions(project, date_from, date_to, _clamp_limit(limit), _clamp_offset(offset))
 
 
 @mcp.tool()
@@ -141,8 +169,9 @@ def get_period(
     limit: int = 100,
 ) -> list[dict]:
     """All conversation content within a date range, without needing a
-    keyword -- e.g. 'what did I work on last Tuesday'."""
-    return temporal.get_period(date_from, date_to, project, include_low_signal, limit)
+    keyword -- e.g. 'what did I work on last Tuesday'. limit is capped at
+    500."""
+    return temporal.get_period(date_from, date_to, project, include_low_signal, _clamp_limit(limit))
 
 
 @mcp.tool()
@@ -154,8 +183,11 @@ def get_context(
     after: int = 5,
 ) -> dict:
     """Full-fidelity (untruncated) conversation context surrounding a search
-    result -- pass a chunk_id from a search result, or a message_uuid."""
-    return temporal.get_context(session_id, around_chunk_id, message_uuid, before, after)
+    result -- pass a chunk_id from a search result, or a message_uuid.
+    before/after are each capped at 100 messages."""
+    return temporal.get_context(
+        session_id, around_chunk_id, message_uuid, _clamp_window(before), _clamp_window(after)
+    )
 
 
 @mcp.tool()
@@ -187,8 +219,8 @@ def get_usage(
 ) -> list[dict]:
     """LLM token usage and cost breakdown, grouped by "model" (default),
     "session", or "day". Answers "what did I spend today" / "which sessions
-    were expensive"."""
-    return analytics.get_usage(group_by, project, date_from, date_to, limit)
+    were expensive". limit is capped at 500."""
+    return analytics.get_usage(group_by, project, date_from, date_to, _clamp_limit(limit))
 
 
 @mcp.tool()

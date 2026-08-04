@@ -74,6 +74,7 @@ def _run_keyword_query(
     include_low_signal: bool,
     include_sidechains: bool,
     limit: int,
+    offset: int = 0,
 ) -> list[dict]:
     params: list = [sanitized_query]
     role_clause = ""
@@ -94,9 +95,9 @@ def _run_keyword_query(
         {role_clause}
         {filters}
         ORDER BY bm25_score
-        LIMIT ?
+        LIMIT ? OFFSET ?
     """
-    params.append(limit)
+    params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_result(r, r["bm25_score"]) for r in rows]
 
@@ -110,6 +111,7 @@ def keyword_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
     fuzzy_fallback: bool = True,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
@@ -127,7 +129,7 @@ def keyword_search(
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
         results = _run_keyword_query(
             conn, _sanitize_fts_query(query), project, utc_from, utc_to,
-            roles, include_low_signal, include_sidechains, limit,
+            roles, include_low_signal, include_sidechains, limit, offset,
         )
         if results or not fuzzy_fallback or '"' in query:
             return results
@@ -138,7 +140,7 @@ def keyword_search(
 
         fallback_results = _run_keyword_query(
             conn, _sanitize_fts_query(corrected), project, utc_from, utc_to,
-            roles, include_low_signal, include_sidechains, limit,
+            roles, include_low_signal, include_sidechains, limit, offset,
         )
         for r in fallback_results:
             r["fuzzy_corrected_query"] = corrected
@@ -156,6 +158,7 @@ def semantic_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
     """Embedding nearest-neighbor search. Over-fetches candidates from the
@@ -167,7 +170,7 @@ def semantic_search(
     try:
         vector = embed.embed_query(query)
         vec_blob = sqlite_vec.serialize_float32(vector)
-        fetch_k = min(max(limit * 5, 50), 500)
+        fetch_k = min(max((limit + offset) * 5, 50), 500)
 
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
         filter_params: list = []
@@ -183,9 +186,9 @@ def semantic_search(
             {_sidechain_clause(include_sidechains)}
             {filters}
             ORDER BY vec_distance
-            LIMIT ?
+            LIMIT ? OFFSET ?
         """
-        params = [vec_blob, fetch_k, *filter_params, limit]
+        params = [vec_blob, fetch_k, *filter_params, limit, offset]
         rows = conn.execute(sql, params).fetchall()
         return [_row_to_result(r, r["vec_distance"]) for r in rows]
     finally:
@@ -201,6 +204,7 @@ def hybrid_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    offset: int = 0,
     rerank: bool = True,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
@@ -217,7 +221,7 @@ def hybrid_search(
     own_conn = conn is None
     conn = conn or db.connect(read_only=True)
     try:
-        fetch_limit = max(limit * 3, 30)
+        fetch_limit = max((limit + offset) * 3, 30)
         kw_results = keyword_search(
             query, project, date_from, date_to,
             include_low_signal=include_low_signal, include_sidechains=include_sidechains,
@@ -237,9 +241,10 @@ def hybrid_search(
                 scores[r["chunk_id"]] = scores.get(r["chunk_id"], 0.0) + 1.0 / (rrf_k + rnk + 1)
                 by_id[r["chunk_id"]] = r
 
-        # keep a wider pool than `limit` pre-rerank, so signal/recency can
-        # pull a lower-RRF-rank result above a higher one within the pool.
-        pool_size = max(limit * 3, limit) if rerank else limit
+        # keep a wider pool than `limit`+`offset` pre-rerank, so signal/recency
+        # can pull a lower-RRF-rank result above a higher one within the pool.
+        page = limit + offset
+        pool_size = max(page * 3, page) if rerank else page
         ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:pool_size]
         out = []
         for chunk_id, score in ranked:
@@ -248,9 +253,9 @@ def hybrid_search(
             out.append(result)
 
         if rerank:
-            out = rerank_module.rerank(out, limit=limit)
+            out = rerank_module.rerank(out, limit=limit, offset=offset)
         else:
-            out = out[:limit]
+            out = out[offset:offset + limit]
         return out
     finally:
         if own_conn:

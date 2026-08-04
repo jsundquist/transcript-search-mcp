@@ -36,12 +36,14 @@ def rerank(
     results: list[dict],
     *,
     limit: int,
+    offset: int = 0,
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
     now: datetime | None = None,
 ) -> list[dict]:
     """Re-score `results` (each needs "score", "signal", "timestamp") by
-    RRF-score * signal-weight * recency-decay, re-sort, and truncate to
-    `limit`. Adds a "rerank_score" key; the original "score" is untouched."""
+    RRF-score * signal-weight * recency-decay, re-sort, and return the
+    `limit`-sized page starting at `offset`. Adds a "rerank_score" key; the
+    original "score" is untouched."""
     now = now or datetime.now(timezone.utc)
     rescored = []
     for r in results:
@@ -52,4 +54,4 @@ def rerank(
         out["rerank_score"] = base_score * signal_mult * recency_mult
         rescored.append(out)
     rescored.sort(key=lambda r: -r["rerank_score"])
-    return rescored[:limit]
+    return rescored[offset:offset + limit]

@@ -17,6 +17,7 @@ def list_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 50,
+    offset: int = 0,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
     own_conn = conn is None
@@ -40,9 +41,9 @@ def list_sessions(
             FROM sessions
             {where}
             ORDER BY last_ts DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
         """
-        params.append(limit)
+        params.extend([limit, offset])
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     finally:

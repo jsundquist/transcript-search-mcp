@@ -205,3 +205,68 @@ def test_list_sessions_and_get_period(conn, tmp_env):
     assert len(period) == 2
     out_of_range = temporal.get_period("2026-07-21", "2026-07-22", conn=conn)
     assert out_of_range == []
+
+
+def test_keyword_search_offset_pages_through_results(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    all_results = search.keyword_search("zorbnax_widget", limit=10, conn=conn)
+    assert len(all_results) >= 2
+
+    page0 = search.keyword_search("zorbnax_widget", limit=1, offset=0, conn=conn)
+    page1 = search.keyword_search("zorbnax_widget", limit=1, offset=1, conn=conn)
+    assert page0[0]["chunk_id"] == all_results[0]["chunk_id"]
+    assert page1[0]["chunk_id"] == all_results[1]["chunk_id"]
+    assert page0[0]["chunk_id"] != page1[0]["chunk_id"]
+
+
+def test_semantic_search_offset_pages_through_results(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+
+    all_results = search.semantic_search("zorbnax_widget", limit=10, conn=conn)
+    assert len(all_results) >= 2
+
+    page0 = search.semantic_search("zorbnax_widget", limit=1, offset=0, conn=conn)
+    page1 = search.semantic_search("zorbnax_widget", limit=1, offset=1, conn=conn)
+    assert page0[0]["chunk_id"] == all_results[0]["chunk_id"]
+    assert page1[0]["chunk_id"] == all_results[1]["chunk_id"]
+    assert page0[0]["chunk_id"] != page1[0]["chunk_id"]
+
+
+def test_hybrid_search_offset_pages_through_results(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+
+    for rerank_flag in (True, False):
+        all_results = search.hybrid_search(
+            "zorbnax_widget", limit=10, rerank=rerank_flag, conn=conn
+        )
+        assert len(all_results) >= 2
+
+        page0 = search.hybrid_search(
+            "zorbnax_widget", limit=1, offset=0, rerank=rerank_flag, conn=conn
+        )
+        page1 = search.hybrid_search(
+            "zorbnax_widget", limit=1, offset=1, rerank=rerank_flag, conn=conn
+        )
+        assert page0[0]["chunk_id"] == all_results[0]["chunk_id"]
+        assert page1[0]["chunk_id"] == all_results[1]["chunk_id"]
+        assert page0[0]["chunk_id"] != page1[0]["chunk_id"]
+
+
+def test_list_sessions_offset_pages_through_results(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl", project_dir="-proj-a")
+    copy_fixture(tmp_env["watch_root"], "tool_use_result.jsonl", project_dir="-proj-b")
+    ingest.backfill(conn)
+
+    all_sessions = temporal.list_sessions(limit=10, conn=conn)
+    assert len(all_sessions) == 2
+
+    page0 = temporal.list_sessions(limit=1, offset=0, conn=conn)
+    page1 = temporal.list_sessions(limit=1, offset=1, conn=conn)
+    assert page0[0]["session_id"] == all_sessions[0]["session_id"]
+    assert page1[0]["session_id"] == all_sessions[1]["session_id"]
+    assert page0[0]["session_id"] != page1[0]["session_id"]
