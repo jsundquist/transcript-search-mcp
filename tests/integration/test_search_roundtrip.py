@@ -96,6 +96,38 @@ def test_date_range_filter(conn, tmp_env):
     )
 
 
+def test_keyword_search_fuzzy_fallback_corrects_typo(conn, tmp_env):
+    # underscore is a token separator for FTS5's unicode61 tokenizer, so
+    # "zorbnax_widget" indexes as two tokens ("zorbnax", "widget") -- the
+    # typo test uses a single-word token so the correction lookup lines up
+    # with what's actually in chunks_vocab.
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+
+    strict = search.keyword_search("dashbord", fuzzy_fallback=False, conn=conn)
+    assert strict == []
+
+    fuzzy_results = search.keyword_search("dashbord", conn=conn)
+    assert any("dashboard" in r["text"] for r in fuzzy_results)
+    assert all("fuzzy_corrected_query" in r for r in fuzzy_results)
+
+
+def test_keyword_search_fuzzy_fallback_does_not_trigger_for_phrase_queries(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    # a quoted phrase with a typo should not get "corrected" into a
+    # different phrase -- phrase search stays strict.
+    results = search.keyword_search('"dashbord header"', conn=conn)
+    assert results == []
+
+
+def test_keyword_search_fuzzy_fallback_leaves_uncorrectable_query_empty(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    results = search.keyword_search("completely unrelated gibberish query", conn=conn)
+    assert results == []
+
+
 def test_semantic_search_finds_paraphrase_without_literal_overlap(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
     ingest.backfill(conn)

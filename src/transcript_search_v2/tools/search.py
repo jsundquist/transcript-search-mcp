@@ -6,7 +6,7 @@ import sqlite3
 
 import sqlite_vec
 
-from transcript_search_v2 import db, embed
+from transcript_search_v2 import db, embed, fuzzy
 from transcript_search_v2.timeutil import local_range_to_utc
 
 
@@ -64,6 +64,43 @@ def _row_to_result(row: sqlite3.Row, score: float | None) -> dict:
     }
 
 
+def _run_keyword_query(
+    conn: sqlite3.Connection,
+    sanitized_query: str,
+    project: str | None,
+    utc_from: str | None,
+    utc_to: str | None,
+    roles: list[str] | None,
+    include_low_signal: bool,
+    include_sidechains: bool,
+    limit: int,
+) -> list[dict]:
+    params: list = [sanitized_query]
+    role_clause = ""
+    if roles:
+        placeholders = ",".join("?" for _ in roles)
+        role_clause = f"AND c.role IN ({placeholders})"
+    filters = _filter_clauses(project, utc_from, utc_to, params)
+    if roles:
+        params.extend(roles)
+    sql = f"""
+        SELECT c.id, c.session_id, c.project_cwd, c.timestamp, c.role, c.block_type,
+               c.signal, c.text, bm25(chunks_fts) AS bm25_score
+        FROM chunks_fts
+        JOIN chunks c ON c.rowid = chunks_fts.rowid
+        WHERE chunks_fts MATCH ?
+        {_signal_clause(include_low_signal)}
+        {_sidechain_clause(include_sidechains)}
+        {role_clause}
+        {filters}
+        ORDER BY bm25_score
+        LIMIT ?
+    """
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_result(r, r["bm25_score"]) for r in rows]
+
+
 def keyword_search(
     query: str,
     project: str | None = None,
@@ -73,38 +110,39 @@ def keyword_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    fuzzy_fallback: bool = True,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict]:
     """FTS5 keyword/phrase search. Quote `query` (e.g. '"exact phrase"') for
-    phrase search -- no separate phrase tool needed."""
+    phrase search -- no separate phrase tool needed.
+
+    fuzzy_fallback: if the strict search returns nothing and the query isn't
+    a quoted phrase, retry once with typo'd tokens replaced by their closest
+    indexed-vocabulary match (see fuzzy.py). Results from the fallback carry
+    a `fuzzy_corrected_query` key; a strict-search hit never does.
+    """
     own_conn = conn is None
     conn = conn or db.connect(read_only=True)
     try:
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
-        params: list = [_sanitize_fts_query(query)]
-        role_clause = ""
-        if roles:
-            placeholders = ",".join("?" for _ in roles)
-            role_clause = f"AND c.role IN ({placeholders})"
-        filters = _filter_clauses(project, utc_from, utc_to, params)
-        if roles:
-            params.extend(roles)
-        sql = f"""
-            SELECT c.id, c.session_id, c.project_cwd, c.timestamp, c.role, c.block_type,
-                   c.signal, c.text, bm25(chunks_fts) AS bm25_score
-            FROM chunks_fts
-            JOIN chunks c ON c.rowid = chunks_fts.rowid
-            WHERE chunks_fts MATCH ?
-            {_signal_clause(include_low_signal)}
-            {_sidechain_clause(include_sidechains)}
-            {role_clause}
-            {filters}
-            ORDER BY bm25_score
-            LIMIT ?
-        """
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        return [_row_to_result(r, r["bm25_score"]) for r in rows]
+        results = _run_keyword_query(
+            conn, _sanitize_fts_query(query), project, utc_from, utc_to,
+            roles, include_low_signal, include_sidechains, limit,
+        )
+        if results or not fuzzy_fallback or '"' in query:
+            return results
+
+        corrected, changed = fuzzy.correct_query(conn, query)
+        if not changed:
+            return results
+
+        fallback_results = _run_keyword_query(
+            conn, _sanitize_fts_query(corrected), project, utc_from, utc_to,
+            roles, include_low_signal, include_sidechains, limit,
+        )
+        for r in fallback_results:
+            r["fuzzy_corrected_query"] = corrected
+        return fallback_results
     finally:
         if own_conn:
             conn.close()

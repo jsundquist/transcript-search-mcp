@@ -86,6 +86,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokenize='porter unicode61'
 );
 
+-- Term/doc-frequency vocabulary over chunks_fts, used by fuzzy.py to find a
+-- close-spelling replacement for a query token with no exact FTS5 match.
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab('chunks_fts', 'row');
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
     chunk_rowid INTEGER PRIMARY KEY,
     embedding FLOAT[{config.EMBEDDING_DIM}]

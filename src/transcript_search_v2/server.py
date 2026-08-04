@@ -70,11 +70,16 @@ def keyword_search(
     include_low_signal: bool = False,
     include_sidechains: bool = False,
     limit: int = 20,
+    fuzzy_fallback: bool = True,
 ) -> list[dict]:
     """Full-text keyword/phrase search over your Claude Code transcripts.
-    Quote the query (e.g. '"exact phrase"') for phrase search."""
+    Quote the query (e.g. '"exact phrase"') for phrase search. If a strict
+    search finds nothing, fuzzy_fallback retries once with typo'd terms
+    corrected against the indexed vocabulary (results carry
+    fuzzy_corrected_query when this kicks in)."""
     return search.keyword_search(
-        query, project, date_from, date_to, roles, include_low_signal, include_sidechains, limit
+        query, project, date_from, date_to, roles, include_low_signal, include_sidechains,
+        limit, fuzzy_fallback,
     )
 
 
