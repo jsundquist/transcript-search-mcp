@@ -1,0 +1,99 @@
+"""The single writer: owns the one SQLite write connection.
+
+Both the watcher and admin.reindex() funnel file-ingestion work through this
+same queue/consumer, so there is exactly one code path that ever calls
+ingest_file() for a given file after startup -- no two triggers can race on
+the same file. The initial backfill scan runs synchronously before the
+watcher/queue starts, so there's no concurrent writer at that point either.
+
+Embedding is a second, decoupled loop: a chunk becomes keyword-searchable the
+moment it's written, and semantically-searchable a little later once this
+loop picks it up -- including chunks left un-embedded by a prior crash, since
+"pending" is just "embedded = 0 in the db," not tracked separately in memory.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import sqlite3
+from pathlib import Path
+
+from transcript_search_v2 import config, db, embed, ingest
+
+logger = logging.getLogger(__name__)
+
+
+class Writer:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self._ingest_queue: asyncio.Queue[Path] = asyncio.Queue()
+        self._tasks: list[asyncio.Task] = []
+        self._stopped = asyncio.Event()
+
+    def run_startup_backfill(self) -> dict:
+        """Synchronous initial catch-up scan, run before the queue-driven
+        loops start (no concurrent writer yet, so this is safe without the
+        queue)."""
+        return ingest.backfill(self.conn, trigger="backfill")
+
+    async def enqueue_file(self, path: Path) -> None:
+        await self._ingest_queue.put(path)
+
+    async def enqueue_reindex(self, project: str | None = None, session_id: str | None = None) -> int:
+        """Manual reindex trigger -- same queue as the watcher, so it can
+        never race a concurrent watcher event for the same file."""
+        files = ingest.discover_files()
+        count = 0
+        for path in files:
+            if session_id and path.stem != session_id:
+                continue
+            if project and project not in str(path.parent):
+                continue
+            await self.enqueue_file(path)
+            count += 1
+        return count
+
+    def start(self) -> None:
+        self._tasks = [
+            asyncio.create_task(self._ingest_loop(), name="writer-ingest-loop"),
+            asyncio.create_task(self._embed_loop(), name="writer-embed-loop"),
+        ]
+
+    async def stop(self) -> None:
+        self._stopped.set()
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    async def _ingest_loop(self) -> None:
+        while True:
+            path = await self._ingest_queue.get()
+            try:
+                ingest.ingest_file(self.conn, path)
+            except Exception:  # noqa: BLE001 -- one bad file must not kill the loop
+                logger.exception("failed to ingest %s", path)
+                db.mark_file_error(self.conn, str(path), "ingest_loop error")
+                self.conn.commit()
+            finally:
+                self._ingest_queue.task_done()
+
+    async def _embed_loop(self) -> None:
+        while True:
+            pending = db.pending_embeddings(self.conn, limit=config.EMBED_BATCH_SIZE)
+            if not pending:
+                await asyncio.sleep(1.0)
+                continue
+
+            rowids = [rowid for rowid, _ in pending]
+            texts = [text for _, text in pending]
+            try:
+                vectors = await asyncio.to_thread(embed.embed_texts, texts)
+            except Exception:  # noqa: BLE001
+                logger.exception("embedding batch failed, will retry")
+                await asyncio.sleep(2.0)
+                continue
+
+            for rowid, vector in zip(rowids, vectors):
+                db.upsert_embedding(self.conn, rowid, vector)
+            self.conn.commit()

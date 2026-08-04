@@ -1,0 +1,2 @@
+{"type":"user","uuid":"mf-u1","parentUuid":null,"timestamp":"2026-07-20T15:00:00.000Z","sessionId":"mf-session","cwd":"/tmp/fixture-proj","gitBranch":"main","isSidechain":false,"message":{"role":"user","content":"good line before garbage"}}
+{not valid json at all

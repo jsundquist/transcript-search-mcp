@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "transcript-search-v2": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/jsundquist/Projects/transcript-search-mcp-rewrite",
+        "run",
+        "python",
+        "-m",
+        "transcript_search_v2.server"
+      ]
+    }
+  }
+}
