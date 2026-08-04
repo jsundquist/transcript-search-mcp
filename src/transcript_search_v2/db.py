@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import sqlite_vec
 
 from transcript_search_v2 import config
-from transcript_search_v2.extract import Chunk
+from transcript_search_v2.extract import Chunk, LLMCall
 
 SCHEMA_VERSION = 1
 
@@ -108,7 +108,50 @@ CREATE TABLE IF NOT EXISTS run_history (
     chunks_added INTEGER,
     error TEXT
 );
+
+-- One row per real API response (deduped from the multiple JSONL lines that
+-- share a single response's usage stats -- see extract.extract_llm_call).
+-- cost_usd is intentionally NOT stored here: it's computed at query time via
+-- a JOIN against model_pricing, so pricing updates apply retroactively to
+-- historical calls with no backfill/re-pricing step needed.
+CREATE TABLE IF NOT EXISTS llm_calls (
+    message_uuid TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    project_cwd TEXT,
+    timestamp TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    stop_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_ts ON llm_calls(timestamp);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_project_ts ON llm_calls(project_cwd, timestamp);
+
+CREATE TABLE IF NOT EXISTS model_pricing (
+    model TEXT PRIMARY KEY,
+    input_cost_per_token REAL NOT NULL,
+    output_cost_per_token REAL NOT NULL,
+    cache_write_cost_per_token REAL,
+    cache_read_cost_per_token REAL,
+    as_of TEXT
+);
 """
+
+# Seed pricing for models this index is likely to see. Unknown/future models
+# just get cost_usd = NULL in analytics queries (LEFT JOIN) until a row is
+# added here -- never blocks ingestion or search.
+_PRICING_SEED = [
+    ("claude-opus-4-6", 0.000015, 0.000075, 0.00001875, 0.0000015, "2025-07-01"),
+    ("claude-sonnet-4-6", 0.000003, 0.000015, 0.00000375, 0.0000003, "2025-07-01"),
+    ("claude-sonnet-4-6[1m]", 0.000003, 0.000015, 0.00000375, 0.0000003, "2025-07-01"),
+    ("claude-sonnet-5", 0.000003, 0.000015, 0.00000375, 0.0000003, "2026-01-01"),
+    ("claude-opus-4-8", 0.000015, 0.000075, 0.00001875, 0.0000015, "2026-01-01"),
+    ("claude-haiku-4-5-20251001", 0.000001, 0.000005, 0.00000125, 0.0000001, "2026-04-08"),
+    ("claude-haiku-4-5", 0.000001, 0.000005, 0.00000125, 0.0000001, "2026-04-08"),
+]
 
 
 def connect(read_only: bool = False) -> sqlite3.Connection:
@@ -133,6 +176,14 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))",
             (SCHEMA_VERSION,),
+        )
+    for row in _PRICING_SEED:
+        conn.execute(
+            "INSERT OR IGNORE INTO model_pricing "
+            "(model, input_cost_per_token, output_cost_per_token, "
+            "cache_write_cost_per_token, cache_read_cost_per_token, as_of) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            row,
         )
     conn.commit()
 
@@ -297,6 +348,32 @@ def pending_embeddings(conn: sqlite3.Connection, limit: int = 1000) -> list[tupl
         "SELECT rowid, text FROM chunks WHERE embedded = 0 ORDER BY rowid LIMIT ?", (limit,)
     ).fetchall()
     return [(r[0], r[1]) for r in rows]
+
+
+# --- llm_calls -----------------------------------------------------------------
+
+
+def upsert_llm_call(conn: sqlite3.Connection, call: LLMCall) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO llm_calls
+            (message_uuid, session_id, project_cwd, timestamp, model,
+             input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, stop_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            call.message_uuid,
+            call.session_id,
+            call.project_cwd,
+            call.timestamp,
+            call.model,
+            call.input_tokens,
+            call.output_tokens,
+            call.cache_write_tokens,
+            call.cache_read_tokens,
+            call.stop_reason,
+        ),
+    )
 
 
 # --- run_history -----------------------------------------------------------------

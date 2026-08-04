@@ -59,6 +59,7 @@ class Message(BaseModel):
     content: str | list[ContentBlock]
     model: str | None = None
     usage: Usage | None = None
+    stop_reason: str | None = None
 
 
 class TranscriptRecord(BaseModel):

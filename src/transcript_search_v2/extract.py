@@ -50,6 +50,48 @@ class Chunk:
     tool_use_id: str | None = None  # raw "toolu_xxx" id, set only for tool_use blocks
 
 
+@dataclass
+class LLMCall:
+    message_uuid: str
+    session_id: str
+    project_cwd: str
+    timestamp: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cache_write_tokens: int
+    cache_read_tokens: int
+    stop_reason: str | None
+
+
+def extract_llm_call(record: TranscriptRecord, project_cwd_fallback: str) -> LLMCall | None:
+    """Extract token/cost metadata for one real API response, or None.
+
+    Claude Code splits a single API response into multiple JSONL lines --
+    one per content block (thinking, text, tool_use) -- all sharing an
+    identical `usage` object. Only the line carrying the final response has
+    `usage.service_tier` set; the others are re-emissions of the same usage
+    data and must NOT be counted again, or token/cost totals inflate 2-3x.
+    """
+    if record.type != "assistant":
+        return None
+    usage = record.message.usage
+    if usage is None or usage.service_tier is None:
+        return None
+    return LLMCall(
+        message_uuid=record.uuid,
+        session_id=record.sessionId,
+        project_cwd=record.cwd or project_cwd_fallback,
+        timestamp=record.timestamp,
+        model=record.message.model or "",
+        input_tokens=usage.input_tokens or 0,
+        output_tokens=usage.output_tokens or 0,
+        cache_write_tokens=usage.cache_creation_input_tokens or 0,
+        cache_read_tokens=usage.cache_read_input_tokens or 0,
+        stop_reason=record.message.stop_reason,
+    )
+
+
 def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text

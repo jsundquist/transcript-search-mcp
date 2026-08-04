@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from mcp.server.mcpserver import MCPServer
 
 from transcript_search_v2 import db
-from transcript_search_v2.tools import admin, search, temporal
+from transcript_search_v2.tools import admin, analytics, search, temporal
 from transcript_search_v2.watcher import watch_loop
 from transcript_search_v2.writer import Writer
 
@@ -168,6 +168,20 @@ def coverage(project: str | None = None) -> dict:
     """Compares transcript files discovered on disk against what's tracked in
     the index, flagging anything pending re-ingest."""
     return admin.coverage(project)
+
+
+@mcp.tool()
+def get_usage(
+    group_by: str = "model",
+    project: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """LLM token usage and cost breakdown, grouped by "model" (default),
+    "session", or "day". Answers "what did I spend today" / "which sessions
+    were expensive"."""
+    return analytics.get_usage(group_by, project, date_from, date_to, limit)
 
 
 @mcp.tool()

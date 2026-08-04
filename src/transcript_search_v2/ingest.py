@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from transcript_search_v2 import config, db
-from transcript_search_v2.extract import Chunk, extract_chunks
+from transcript_search_v2.extract import Chunk, extract_chunks, extract_llm_call
 from transcript_search_v2.schema import OtherRecord, TranscriptRecord, parse_line
 
 logger = logging.getLogger(__name__)
@@ -155,6 +155,10 @@ def ingest_file(conn: sqlite3.Connection, path: Path) -> IngestResult:
                 tool_names.record(chunk.tool_use_id, chunk.tool_name)
             db.upsert_chunk(conn, chunk)
             chunks_added += 1
+
+        llm_call = extract_llm_call(record, project_cwd_fallback=project_dir)
+        if llm_call is not None:
+            db.upsert_llm_call(conn, llm_call)
 
     if session_timestamps:
         db.upsert_session(
