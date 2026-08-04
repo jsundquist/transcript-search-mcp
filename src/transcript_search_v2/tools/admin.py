@@ -125,12 +125,21 @@ def prune(
                 "llm_calls_to_delete": llm_call_count,
             }
 
+        run_id = db.start_run(conn, trigger=f"prune(cutoff={cutoff}, project={project!r})")
+
         if chunk_rowids:
             placeholders = ",".join("?" for _ in chunk_rowids)
             conn.execute(f"DELETE FROM chunks_fts WHERE rowid IN ({placeholders})", chunk_rowids)
             conn.execute(f"DELETE FROM chunks_vec WHERE chunk_rowid IN ({placeholders})", chunk_rowids)
             conn.execute(f"DELETE FROM chunks WHERE rowid IN ({placeholders})", chunk_rowids)
         conn.execute(f"DELETE FROM llm_calls WHERE {where}", params)
+        # chunks_added is repurposed here to record deletions (this run removes
+        # rather than adds rows) -- distinguishable from an ingest run via the
+        # "prune(...)" trigger prefix, so status()/history readers aren't misled
+        # into thinking the corpus grew.
+        db.finish_run(
+            conn, run_id, files_touched=0, chunks_added=len(chunk_rowids) + llm_call_count
+        )
         conn.commit()
 
         return {

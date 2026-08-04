@@ -104,6 +104,37 @@ def test_prune_rejects_non_positive_older_than_days(conn, tmp_env):
             admin.prune(older_than_days=bad_value, dry_run=True, conn=conn)
 
 
+def test_prune_writes_run_history_row_on_delete(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _make_old(conn, "ne-session", days_ago=100)
+
+    runs_before = conn.execute("SELECT COUNT(*) FROM run_history").fetchone()[0]
+    admin.prune(older_than_days=30, dry_run=False, conn=conn)
+    runs_after = conn.execute(
+        "SELECT COUNT(*) FROM run_history WHERE trigger LIKE 'prune(%'"
+    ).fetchone()[0]
+
+    assert runs_after == 1
+    row = conn.execute(
+        "SELECT finished_at, error FROM run_history WHERE trigger LIKE 'prune(%'"
+    ).fetchone()
+    assert row["finished_at"] is not None
+    assert row["error"] is None
+
+
+def test_prune_dry_run_does_not_write_run_history(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _make_old(conn, "ne-session", days_ago=100)
+
+    admin.prune(older_than_days=30, dry_run=True, conn=conn)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM run_history WHERE trigger LIKE 'prune(%'"
+    ).fetchone()[0]
+    assert count == 0
+
+
 def test_prune_deletes_llm_calls_older_than_cutoff(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "split_response.jsonl")
     ingest.backfill(conn)
