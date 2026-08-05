@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import sqlite_vec
@@ -9,6 +10,8 @@ import sqlite_vec
 from transcript_search_v2 import db, embed, fuzzy, rerank as rerank_module
 from transcript_search_v2.sqlutil import project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_fts_query(query: str) -> str:
@@ -100,7 +103,10 @@ def _run_keyword_query(
         # a query containing a `"` bypasses _sanitize_fts_query's per-token
         # quoting (to leave native FTS5 phrase/boolean syntax reachable), so
         # a malformed expression here is a bad user query, not a server bug.
-        raise ValueError(f"invalid search query syntax: {sanitized_query!r} ({e})") from e
+        # Log the raw driver message server-side rather than passing it
+        # through to the caller verbatim.
+        logger.warning("FTS5 syntax error on query %r: %s", sanitized_query, e)
+        raise ValueError(f"invalid search query syntax: {sanitized_query!r}") from e
     return [_row_to_result(r, r["bm25_score"], r["snippet"]) for r in rows]
 
 
