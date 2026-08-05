@@ -133,7 +133,13 @@ def keyword_search(
             conn, _sanitize_fts_query(query), project, utc_from, utc_to,
             roles, include_low_signal, include_sidechains, limit, offset,
         )
-        if results or not fuzzy_fallback or '"' in query:
+        # An empty page can mean either "zero total matches" or "offset
+        # overshot the real result count" -- _run_keyword_query has no
+        # separate COUNT(*), so those are indistinguishable here. Only
+        # treat offset==0 as a genuine zero-match signal worth correcting;
+        # otherwise a fuzzy correction could silently substitute a
+        # different query just because a later page came up empty.
+        if results or not fuzzy_fallback or '"' in query or offset > 0:
             return results
 
         corrected, changed = fuzzy.correct_query(conn, query)
@@ -249,9 +255,17 @@ def hybrid_search(
                 # semantic_search results never carry a snippet (no FTS match
                 # to excerpt around) -- don't let a later semantic hit
                 # clobber a snippet already found for the same chunk via
-                # keyword_search.
-                if cid in by_id and not r.get("snippet") and by_id[cid].get("snippet"):
-                    r = {**r, "snippet": by_id[cid]["snippet"]}
+                # keyword_search. Same reasoning for fuzzy_corrected_query:
+                # only keyword_search ever sets it, so a later semantic hit
+                # for the same chunk must not silently drop the flag either.
+                if cid in by_id:
+                    carry = {
+                        k: by_id[cid][k]
+                        for k in ("snippet", "fuzzy_corrected_query")
+                        if not r.get(k) and by_id[cid].get(k)
+                    }
+                    if carry:
+                        r = {**r, **carry}
                 by_id[cid] = r
 
         # keep a wider pool than `limit`+`offset` pre-rerank, so signal/recency
