@@ -182,6 +182,14 @@ def doctor(fix: bool = False) -> dict:
         integrity = _check_db_integrity(conn)
         result["db_integrity"] = integrity
 
+        if not integrity["ok"] and not fix:
+            # Further queries below assume a readable db -- on a corrupt one
+            # they'd raise an unhandled sqlite3.DatabaseError. Report the
+            # diagnosis instead; the caller can retry with fix=True to
+            # quarantine+rebuild.
+            result["note"] = "db failed integrity check -- call doctor(fix=True) to quarantine and rebuild"
+            return result
+
         if not integrity["ok"] and fix:
             conn.close()
             ts = time.strftime("%Y%m%d-%H%M%S")
