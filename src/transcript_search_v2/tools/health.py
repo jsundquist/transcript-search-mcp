@@ -17,9 +17,10 @@ import time
 
 from pathlib import Path
 
-from transcript_search_v2 import config, db, embed, ingest
+from transcript_search_v2 import config, db, ingest
 from transcript_search_v2.sqlutil import COST_EXPR_SQL
 from transcript_search_v2.timeutil import local_range_to_utc
+from transcript_search_v2.writer import drain_embeddings_batch
 
 
 def _redact_home(path: str) -> str:
@@ -220,16 +221,10 @@ def doctor(fix: bool = False) -> dict:
         if fix and pending > 0:
             embedded_now = 0
             for _ in range(_MAX_FIX_EMBED_BATCHES):
-                batch = db.pending_embeddings(conn, limit=config.EMBED_BATCH_SIZE)
-                if not batch:
+                embedded, had_batch = drain_embeddings_batch(conn, config.EMBED_BATCH_SIZE)
+                if not had_batch:
                     break
-                rowids = [rowid for rowid, _ in batch]
-                texts = [text for _, text in batch]
-                vectors = embed.embed_texts(texts)
-                for rowid, vector in zip(rowids, vectors):
-                    db.upsert_embedding(conn, rowid, vector)
-                conn.commit()
-                embedded_now += len(batch)
+                embedded_now += embedded
             if embedded_now:
                 result["fixes_applied"].append({"action": "embed_backlog", "chunks_embedded": embedded_now})
                 chunks_embedded += embedded_now
