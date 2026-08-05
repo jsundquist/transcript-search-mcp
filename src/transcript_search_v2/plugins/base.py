@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Literal, Protocol
 
 from transcript_search_v2.extract import Chunk, LLMCall
+from transcript_search_v2.schema import TranscriptRecord
 
 ToolNameResolver = Callable[[str], "str | None"]
 
@@ -79,4 +80,12 @@ class SourcePlugin(Protocol):
         """Parse one physical line and extract its chunks/llm_call. Never
         raises on malformed input -- returns LineResult(kind="malformed")
         instead, so one bad line never aborts the whole file."""
+        ...
+
+    def parse_raw(self, raw_line: str) -> TranscriptRecord | None:
+        """Parse one physical line to its raw record (uuid/parentUuid/
+        isSidechain/etc.), or None if blank/malformed/not a conversational
+        record. Used by full-fidelity context/session recall (tools/temporal.py),
+        which needs the original record shape rather than parse_and_extract's
+        ingestion-shaped LineResult."""
         ...

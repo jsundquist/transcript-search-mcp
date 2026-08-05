@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 
 from transcript_search_v2 import db
 from transcript_search_v2.extract import render_full
-from transcript_search_v2.schema import OtherRecord, TranscriptRecord, parse_line
+from transcript_search_v2.ingest import DEFAULT_PLUGINS, plugin_for
+from transcript_search_v2.schema import TranscriptRecord
 from transcript_search_v2.sqlutil import escape_like, project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
 
@@ -99,19 +99,17 @@ def _resolver(conn: sqlite3.Connection):
 
 
 def _parse_all_lines(path: Path) -> list[tuple[int, TranscriptRecord]]:
+    # Goes through the same SourcePlugin.parse_raw a second plugin would
+    # implement, rather than hardcoding Claude-Code JSON parsing here --
+    # otherwise a second plugin's transcripts would ingest fine but produce
+    # empty/wrong context/session lookups.
+    plugin = plugin_for(path, DEFAULT_PLUGINS)
     records: list[tuple[int, TranscriptRecord]] = []
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line_no, raw_line in enumerate(f, start=1):
-            if not raw_line.strip():
-                continue
-            try:
-                raw = json.loads(raw_line)
-                record = parse_line(raw)
-            except Exception:
-                continue
-            if isinstance(record, OtherRecord):
-                continue
-            records.append((line_no, record))
+            record = plugin.parse_raw(raw_line)
+            if record is not None:
+                records.append((line_no, record))
     return records
 
 

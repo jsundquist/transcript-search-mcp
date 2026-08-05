@@ -87,7 +87,7 @@ def _read_new_complete_lines(path: Path, byte_offset: int) -> tuple[list[str], i
     return lines, new_offset
 
 
-def _plugin_for(path: Path, plugins: list[SourcePlugin]) -> SourcePlugin:
+def plugin_for(path: Path, plugins: list[SourcePlugin]) -> SourcePlugin:
     for plugin in plugins:
         if plugin.is_mine(path):
             return plugin
@@ -98,7 +98,7 @@ def ingest_file(
     conn: sqlite3.Connection, path: Path, plugins: list[SourcePlugin] | None = None
 ) -> IngestResult:
     plugins = plugins if plugins is not None else DEFAULT_PLUGINS
-    plugin = _plugin_for(path, plugins)
+    plugin = plugin_for(path, plugins)
     path_str = str(path)
     session_id = path.stem
     project_dir = path.parent.name

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 from transcript_search_v2 import config
 from transcript_search_v2.extract import extract_chunks, extract_llm_call
@@ -28,6 +29,38 @@ class ClaudeCodePlugin:
     def is_mine(self, path: Path) -> bool:
         return path.suffix == ".jsonl"
 
+    def _parse(
+        self, raw_line: str, *, source_line_no: int | None = None
+    ) -> tuple[Literal["content", "skip", "malformed"], TranscriptRecord | None]:
+        """Shared decode+validate+OtherRecord-skip logic behind both
+        parse_and_extract (ingestion) and parse_raw (context/session
+        recall) -- the two must never diverge in what they consider
+        parseable, or a line indexed by one would silently be unreadable
+        by the other."""
+        if not raw_line.strip():
+            return "skip", None
+
+        try:
+            raw = json.loads(raw_line)
+        except json.JSONDecodeError:
+            logger.warning("skipping malformed JSON line (line %s)", source_line_no)
+            return "malformed", None
+
+        try:
+            record = parse_line(raw)
+        except Exception:
+            logger.warning("skipping line failing schema validation (line %s)", source_line_no)
+            return "malformed", None
+
+        if isinstance(record, OtherRecord):
+            return "skip", None
+
+        return "content", record
+
+    def parse_raw(self, raw_line: str) -> TranscriptRecord | None:
+        _, record = self._parse(raw_line)
+        return record
+
     def parse_and_extract(
         self,
         raw_line: str,
@@ -36,25 +69,10 @@ class ClaudeCodePlugin:
         project_cwd_fallback: str,
         resolve_tool_name: ToolNameResolver,
     ) -> LineResult:
-        if not raw_line.strip():
-            return LineResult(kind="skip")
+        kind, record = self._parse(raw_line, source_line_no=source_line_no)
+        if kind != "content":
+            return LineResult(kind=kind)
 
-        try:
-            raw = json.loads(raw_line)
-        except json.JSONDecodeError:
-            logger.warning("skipping malformed JSON line (line %d)", source_line_no)
-            return LineResult(kind="malformed")
-
-        try:
-            record = parse_line(raw)
-        except Exception:
-            logger.warning("skipping line failing schema validation (line %d)", source_line_no)
-            return LineResult(kind="malformed")
-
-        if isinstance(record, OtherRecord):
-            return LineResult(kind="skip")
-
-        record: TranscriptRecord
         chunks = extract_chunks(
             record,
             source_line_no=source_line_no,
