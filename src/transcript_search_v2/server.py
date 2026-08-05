@@ -253,8 +253,6 @@ def prune(
         raise ValueError(
             "older_than_days must be given (no TRANSCRIPT_SEARCH_RETENTION_DAYS default is set)"
         )
-    if days < 1:
-        raise ValueError(f"older_than_days must be >= 1, got {days}")
     return admin.prune(days, project, dry_run)
 
 
