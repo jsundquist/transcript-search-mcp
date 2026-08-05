@@ -46,17 +46,25 @@ Copy the relevant block from `mcp.json.example` into your `~/.claude.json`
 ## Tools
 
 - `keyword_search` / `semantic_search` / `hybrid_search` -- full-text,
-  meaning-based, and combined (reciprocal-rank fusion) search. Quote the
-  query (e.g. `'"exact phrase"'`) for phrase search. All support `project`
-  (substring match against the working directory a message was sent from),
-  `date_from`/`date_to` (interpreted in local time, see `config.LOCAL_TZ`),
-  `include_low_signal`, and `include_sidechains`.
+  meaning-based, and combined (reciprocal-rank fusion, with signal/recency
+  reranking by default) search. Quote the query (e.g. `'"exact phrase"'`) for
+  phrase search. All support `project` (substring match against the working
+  directory a message was sent from), `date_from`/`date_to` (interpreted in
+  local time, see `config.LOCAL_TZ`), `include_low_signal`,
+  `include_sidechains`, `limit` (capped at 500), and `offset` (for paging).
+  `keyword_search` also retries once with typo-corrected terms
+  (`fuzzy_fallback`, see `fuzzy.py`) if a strict search finds nothing.
 - `list_sessions`, `get_period` -- browse by recency or date range without a
   keyword.
 - `get_context`, `get_session` -- full-fidelity (untruncated) recall,
   re-reading the original `.jsonl` lines rather than the truncated index.
 - `status`, `coverage`, `reindex` -- indexer health and manual re-index
   trigger.
+- `get_usage` -- LLM token/cost breakdown by model, session, or day.
+- `doctor` -- environment/index health check, with `fix=True` auto-repair
+  (backfill, drain embedding backlog, quarantine+rebuild a corrupt db).
+- `prune` -- delete chunks/LLM-call records older than N days, optionally
+  scoped to a project; `dry_run=True` by default.
 
 ## Tests
 
@@ -74,6 +82,11 @@ in `tools/search.py`).
 
 ## Out of scope for v1
 
-Cost/usage/token analytics, multi-source plugin architecture, cross-machine
-sync, fuzzy/typo-tolerant search beyond FTS5's tokenizer, reranking beyond
-simple RRF, automatic pruning/retention.
+Cross-machine sync, automatic (scheduled) pruning/retention -- `prune()`
+exists but is invoked manually, never on a timer. A second concrete
+`SourcePlugin` beyond Claude Code -- the plugin protocol (`plugins/base.py`)
+is in place, but only `plugins/claude_code.py` implements it today.
+
+Note: cost/usage analytics (`get_usage`), fuzzy/typo-tolerant search
+(`fuzzy.py`), and reranking beyond plain RRF (`rerank.py`) were originally
+scoped out of v1 but have since been implemented.
