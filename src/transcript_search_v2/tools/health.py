@@ -15,9 +15,18 @@ import sqlite3
 import sys
 import time
 
+from pathlib import Path
+
 from transcript_search_v2 import config, db, embed, ingest
 from transcript_search_v2.sqlutil import COST_EXPR_SQL
 from transcript_search_v2.timeutil import local_range_to_utc
+
+
+def _redact_home(path: str) -> str:
+    """Collapse the home-directory prefix to `~` so tool output doesn't
+    embed the OS username verbatim if relayed elsewhere by the calling
+    agent."""
+    return path.replace(str(Path.home()), "~", 1)
 
 _DEPENDENCIES = [
     ("mcp", "mcp"),
@@ -60,7 +69,7 @@ def _check_environment() -> dict:
 
     return {
         "python_version": sys.version.split()[0],
-        "python_executable": sys.executable,
+        "python_executable": _redact_home(sys.executable),
         "dependencies": dependencies,
         "missing_dependencies": missing,
         "sqlite_load_extension_ok": load_extension_ok,
@@ -72,8 +81,8 @@ def _check_environment() -> dict:
 
 def _check_data_paths() -> dict:
     return {
-        "watch_root": {"path": str(config.WATCH_ROOT), "exists": config.WATCH_ROOT.exists()},
-        "db_path": {"path": str(config.DB_PATH), "exists": config.DB_PATH.exists()},
+        "watch_root": {"path": _redact_home(str(config.WATCH_ROOT)), "exists": config.WATCH_ROOT.exists()},
+        "db_path": {"path": _redact_home(str(config.DB_PATH)), "exists": config.DB_PATH.exists()},
     }
 
 

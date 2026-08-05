@@ -84,6 +84,13 @@ def get_period(
             conn.close()
 
 
+def _redact_home(path: Path) -> str:
+    """Collapse the home-directory prefix to `~` so tool output doesn't
+    embed the OS username verbatim if relayed elsewhere by the calling
+    agent."""
+    return str(path).replace(str(Path.home()), "~", 1)
+
+
 def _session_file_path(conn: sqlite3.Connection, session_id: str) -> Path | None:
     row = conn.execute(
         "SELECT path FROM files WHERE session_id = ? LIMIT 1", (session_id,)
@@ -197,7 +204,7 @@ def get_session(session_id: str, conn: sqlite3.Connection | None = None) -> dict
         records = _parse_all_lines(path)
         return {
             "session_id": session_id,
-            "path": str(path),
+            "path": _redact_home(path),
             "messages": [_render_message(conn, ln, r) for ln, r in records],
         }
     finally:
