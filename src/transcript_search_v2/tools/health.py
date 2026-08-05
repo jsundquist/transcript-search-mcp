@@ -16,6 +16,7 @@ import sys
 import time
 
 from transcript_search_v2 import config, db, embed, ingest
+from transcript_search_v2.sqlutil import COST_EXPR_SQL
 from transcript_search_v2.timeutil import local_range_to_utc
 
 _DEPENDENCIES = [
@@ -93,8 +94,9 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
     if not has_pricing:
         return {"today_usd": None, "seven_day_avg_usd": None, "expensive_sessions": []}
 
-    today_utc, _ = local_range_to_utc(_dt.date.today().isoformat(), None)
-    week_ago_utc, _ = local_range_to_utc((_dt.date.today() - _dt.timedelta(days=7)).isoformat(), None)
+    today_local = _dt.datetime.now(config.LOCAL_TZ).date()
+    today_utc, _ = local_range_to_utc(today_local.isoformat(), None)
+    week_ago_utc, _ = local_range_to_utc((today_local - _dt.timedelta(days=7)).isoformat(), None)
 
     def _cost_since(since: str, until: str | None = None) -> float:
         clauses = ["lc.timestamp >= ?"]
@@ -104,12 +106,7 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
             params.append(until)
         row = conn.execute(
             f"""
-            SELECT sum(
-                lc.input_tokens * mp.input_cost_per_token
-                + lc.output_tokens * mp.output_cost_per_token
-                + lc.cache_write_tokens * COALESCE(mp.cache_write_cost_per_token, 0)
-                + lc.cache_read_tokens * COALESCE(mp.cache_read_cost_per_token, 0)
-            )
+            SELECT sum({COST_EXPR_SQL})
             FROM llm_calls lc LEFT JOIN model_pricing mp ON lc.model = mp.model
             WHERE {' AND '.join(clauses)}
             """,
@@ -122,14 +119,9 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
     seven_day_avg = week_cost_excl_today / 7.0
 
     sessions_today = conn.execute(
-        """
+        f"""
         SELECT lc.session_id,
-               sum(
-                   lc.input_tokens * mp.input_cost_per_token
-                   + lc.output_tokens * mp.output_cost_per_token
-                   + lc.cache_write_tokens * COALESCE(mp.cache_write_cost_per_token, 0)
-                   + lc.cache_read_tokens * COALESCE(mp.cache_read_cost_per_token, 0)
-               ) AS cost_usd,
+               sum({COST_EXPR_SQL}) AS cost_usd,
                count(*) AS calls
         FROM llm_calls lc LEFT JOIN model_pricing mp ON lc.model = mp.model
         WHERE lc.timestamp >= ?
