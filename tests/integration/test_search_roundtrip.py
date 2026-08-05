@@ -209,6 +209,34 @@ def test_list_sessions_and_get_period(conn, tmp_env):
     assert out_of_range == []
 
 
+def test_keyword_search_results_carry_highlighted_snippet(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    results = search.keyword_search("zorbnax_widget", conn=conn)
+    assert results
+    assert all("snippet" in r for r in results)
+    assert any("<mark>zorbnax_widget</mark>" in r["snippet"] for r in results)
+
+
+def test_semantic_search_results_have_no_snippet(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+    results = search.semantic_search("what does the dashboard widget do", conn=conn)
+    assert results
+    assert all(r["snippet"] is None for r in results)
+
+
+def test_hybrid_search_preserves_keyword_snippet_for_shared_chunk(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    _embed_all_pending(conn)
+    # a chunk found by both keyword and semantic search should keep its
+    # keyword-derived snippet rather than losing it to the semantic hit.
+    results = search.hybrid_search("zorbnax_widget", conn=conn)
+    assert any(r.get("snippet") for r in results)
+
+
 def test_keyword_search_malformed_fts_query_raises_value_error(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
     ingest.backfill(conn)

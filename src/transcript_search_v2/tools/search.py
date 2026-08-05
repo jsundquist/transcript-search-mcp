@@ -50,7 +50,7 @@ def _filter_clauses(
     return " ".join(f"AND {c}" for c in clauses)
 
 
-def _row_to_result(row: sqlite3.Row, score: float | None) -> dict:
+def _row_to_result(row: sqlite3.Row, score: float | None, snippet: str | None = None) -> dict:
     return {
         "chunk_id": row["id"],
         "session_id": row["session_id"],
@@ -61,6 +61,7 @@ def _row_to_result(row: sqlite3.Row, score: float | None) -> dict:
         "signal": row["signal"],
         "text": row["text"],
         "score": score,
+        "snippet": snippet,
     }
 
 
@@ -86,7 +87,8 @@ def _run_keyword_query(
         params.extend(roles)
     sql = f"""
         SELECT c.id, c.session_id, c.project_cwd, c.timestamp, c.role, c.block_type,
-               c.signal, c.text, bm25(chunks_fts) AS bm25_score
+               c.signal, c.text, bm25(chunks_fts) AS bm25_score,
+               snippet(chunks_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
         FROM chunks_fts
         JOIN chunks c ON c.rowid = chunks_fts.rowid
         WHERE chunks_fts MATCH ?
@@ -105,7 +107,7 @@ def _run_keyword_query(
         # quoting (to leave native FTS5 phrase/boolean syntax reachable), so
         # a malformed expression here is a bad user query, not a server bug.
         raise ValueError(f"invalid search query syntax: {sanitized_query!r} ({e})") from e
-    return [_row_to_result(r, r["bm25_score"]) for r in rows]
+    return [_row_to_result(r, r["bm25_score"], r["snippet"]) for r in rows]
 
 
 def keyword_search(
@@ -244,8 +246,15 @@ def hybrid_search(
         by_id: dict[str, dict] = {}
         for results in (kw_results, sem_results):
             for rnk, r in enumerate(results):
-                scores[r["chunk_id"]] = scores.get(r["chunk_id"], 0.0) + 1.0 / (rrf_k + rnk + 1)
-                by_id[r["chunk_id"]] = r
+                cid = r["chunk_id"]
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (rrf_k + rnk + 1)
+                # semantic_search results never carry a snippet (no FTS match
+                # to excerpt around) -- don't let a later semantic hit
+                # clobber a snippet already found for the same chunk via
+                # keyword_search.
+                if cid in by_id and not r.get("snippet") and by_id[cid].get("snippet"):
+                    r = {**r, "snippet": by_id[cid]["snippet"]}
+                by_id[cid] = r
 
         # keep a wider pool than `limit`+`offset` pre-rerank, so signal/recency
         # can pull a lower-RRF-rank result above a higher one within the pool.
