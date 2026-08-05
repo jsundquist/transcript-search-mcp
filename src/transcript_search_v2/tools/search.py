@@ -172,7 +172,11 @@ def semantic_search(
     try:
         vector = embed.embed_query(query)
         vec_blob = sqlite_vec.serialize_float32(vector)
-        fetch_k = min(max((limit + offset) * 5, 50), 500)
+        # Cap sized for the server's _MAX_LIMIT (500) + _MAX_OFFSET (2000) --
+        # a flat 500 cap meant fetch_k stopped growing with `offset` past
+        # ~50, so a large-but-valid offset silently returned empty instead
+        # of the results that were actually there further down.
+        fetch_k = min(max((limit + offset) * 5, 50), 15000)
 
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
         filter_params: list = []
