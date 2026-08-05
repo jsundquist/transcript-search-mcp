@@ -17,11 +17,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 from transcript_search_v2 import config, db, embed, ingest
 
 logger = logging.getLogger(__name__)
+
+# Guards config.DB_PATH against doctor(fix=True)'s quarantine close/rename/
+# reopen sequence running concurrently with a write here -- nothing else
+# guarded DB_PATH access between the two before this existed. Writer holds
+# it only around the actual write+commit, not the full ingest/embed work,
+# so quarantine can't observe a half-written transaction; a threading.Lock
+# (not asyncio.Lock) since doctor() may run on a different thread than the
+# event loop (MCP tool dispatch).
+DB_FILE_LOCK = threading.Lock()
 
 
 def _apply_embeddings(conn: sqlite3.Connection, rowids: list[int], vectors: list) -> None:
@@ -106,11 +116,13 @@ class Writer:
         while True:
             path = await self._ingest_queue.get()
             try:
-                ingest.ingest_file(self.conn, path)
+                with DB_FILE_LOCK:
+                    ingest.ingest_file(self.conn, path)
             except Exception:  # noqa: BLE001 -- one bad file must not kill the loop
                 logger.exception("failed to ingest %s", path)
-                db.mark_file_error(self.conn, str(path), "ingest_loop error")
-                self.conn.commit()
+                with DB_FILE_LOCK:
+                    db.mark_file_error(self.conn, str(path), "ingest_loop error")
+                    self.conn.commit()
             finally:
                 self._ingest_queue.task_done()
 
@@ -130,4 +142,5 @@ class Writer:
                 await asyncio.sleep(2.0)
                 continue
 
-            _apply_embeddings(self.conn, rowids, vectors)
+            with DB_FILE_LOCK:
+                _apply_embeddings(self.conn, rowids, vectors)

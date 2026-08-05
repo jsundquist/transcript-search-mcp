@@ -20,7 +20,7 @@ from pathlib import Path
 from transcript_search_v2 import config, db, ingest
 from transcript_search_v2.sqlutil import COST_EXPR_SQL
 from transcript_search_v2.timeutil import local_range_to_utc
-from transcript_search_v2.writer import drain_embeddings_batch
+from transcript_search_v2.writer import DB_FILE_LOCK, drain_embeddings_batch
 
 
 def _redact_home(path: str) -> str:
@@ -157,6 +157,52 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
     }
 
 
+def _fix_missing_db() -> dict:
+    conn = db.connect()
+    db.init_db(conn)
+    backfill_result = ingest.backfill(conn)
+    conn.close()
+    return {"action": "backfill", "result": backfill_result}
+
+
+def _fix_corrupt_db(conn: sqlite3.Connection) -> tuple[sqlite3.Connection, list[dict], dict]:
+    """Quarantines the corrupt db file and rebuilds via backfill. Returns
+    (new_conn, fixes_applied, new_integrity) -- caller must swap its `conn`
+    reference to the returned one. Holds DB_FILE_LOCK for the whole
+    close/rename/reopen sequence so the background Writer (writer.py) can't
+    be mid-write against config.DB_PATH while it's quarantined out from
+    under it."""
+    fixes: list[dict] = []
+    with DB_FILE_LOCK:
+        conn.close()
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        quarantine = config.DB_PATH.with_suffix(config.DB_PATH.suffix + f".corrupt-{ts}")
+        config.DB_PATH.rename(quarantine)
+        for sidecar_suffix in ("-wal", "-shm"):
+            sidecar = config.DB_PATH.with_name(config.DB_PATH.name + sidecar_suffix)
+            if sidecar.exists():
+                sidecar.rename(sidecar.with_name(sidecar.name + f".corrupt-{ts}"))
+        fixes.append({"action": "quarantine_corrupt_db", "quarantined_to": str(quarantine)})
+        conn = db.connect()
+        db.init_db(conn)
+    # distinct trigger (vs. plain "backfill") so run_history shows *why* the
+    # db was replaced, not just that a backfill happened.
+    backfill_result = ingest.backfill(conn, trigger="doctor_fix_rebuild")
+    fixes.append({"action": "rebuild", "result": backfill_result})
+    return conn, fixes, _check_db_integrity(conn)
+
+
+def _fix_embed_backlog(conn: sqlite3.Connection) -> int:
+    embedded_now = 0
+    for _ in range(_MAX_FIX_EMBED_BATCHES):
+        with DB_FILE_LOCK:
+            embedded, had_batch = drain_embeddings_batch(conn, config.EMBED_BATCH_SIZE)
+        if not had_batch:
+            break
+        embedded_now += embedded
+    return embedded_now
+
+
 def doctor(fix: bool = False) -> dict:
     """Environment + index health check. With fix=True, also attempts common
     auto-repairs: backfill if the index is empty, drain the embedding
@@ -169,11 +215,7 @@ def doctor(fix: bool = False) -> dict:
 
     if not config.DB_PATH.exists():
         if fix:
-            conn = db.connect()
-            db.init_db(conn)
-            backfill_result = ingest.backfill(conn)
-            result["fixes_applied"].append({"action": "backfill", "result": backfill_result})
-            conn.close()
+            result["fixes_applied"].append(_fix_missing_db())
         else:
             result["index"] = None
             result["note"] = "index not built yet -- call doctor(fix=True) or start the server"
@@ -193,24 +235,8 @@ def doctor(fix: bool = False) -> dict:
             return result
 
         if not integrity["ok"] and fix:
-            conn.close()
-            ts = time.strftime("%Y%m%d-%H%M%S")
-            quarantine = config.DB_PATH.with_suffix(config.DB_PATH.suffix + f".corrupt-{ts}")
-            config.DB_PATH.rename(quarantine)
-            for sidecar_suffix in ("-wal", "-shm"):
-                sidecar = config.DB_PATH.with_name(config.DB_PATH.name + sidecar_suffix)
-                if sidecar.exists():
-                    sidecar.rename(sidecar.with_name(sidecar.name + f".corrupt-{ts}"))
-            result["fixes_applied"].append(
-                {"action": "quarantine_corrupt_db", "quarantined_to": str(quarantine)}
-            )
-            conn = db.connect()
-            db.init_db(conn)
-            # distinct trigger (vs. plain "backfill") so run_history shows
-            # *why* the db was replaced, not just that a backfill happened.
-            backfill_result = ingest.backfill(conn, trigger="doctor_fix_rebuild")
-            result["fixes_applied"].append({"action": "rebuild", "result": backfill_result})
-            result["db_integrity"] = _check_db_integrity(conn)
+            conn, fixes, result["db_integrity"] = _fix_corrupt_db(conn)
+            result["fixes_applied"].extend(fixes)
 
         files_tracked = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
         chunks_total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
@@ -219,12 +245,7 @@ def doctor(fix: bool = False) -> dict:
         pending = chunks_total - chunks_embedded
 
         if fix and pending > 0:
-            embedded_now = 0
-            for _ in range(_MAX_FIX_EMBED_BATCHES):
-                embedded, had_batch = drain_embeddings_batch(conn, config.EMBED_BATCH_SIZE)
-                if not had_batch:
-                    break
-                embedded_now += embedded
+            embedded_now = _fix_embed_backlog(conn)
             if embedded_now:
                 result["fixes_applied"].append({"action": "embed_backlog", "chunks_embedded": embedded_now})
                 chunks_embedded += embedded_now
