@@ -6,8 +6,7 @@ date-range search over them, plus full-fidelity context/session recall.
 
 ## Architecture
 
-- **Data dir**: `~/.transcript-search-v2/` (separate from any other
-  transcript-search installation, e.g. `~/.transcript-search/`).
+- **Data dir**: `~/.transcript-search-v2/`.
 - **One SQLite database** (`index.db`, WAL mode) holds everything: chunk
   rows, an FTS5 keyword index, and a [sqlite-vec](https://github.com/asg017/sqlite-vec)
   vector index, all writable in the same transaction -- deliberately not a
@@ -79,14 +78,3 @@ ingest -> search -> context-recall pipeline against synthetic fixtures under
 filtering, idempotent re-ingestion, and the FTS5 hyphenated-term gotcha
 (`sqlite-vec` parses as `NOT vec` unless quoted -- see `_sanitize_fts_query`
 in `tools/search.py`).
-
-## Out of scope for v1
-
-Cross-machine sync, automatic (scheduled) pruning/retention -- `prune()`
-exists but is invoked manually, never on a timer. A second concrete
-`SourcePlugin` beyond Claude Code -- the plugin protocol (`plugins/base.py`)
-is in place, but only `plugins/claude_code.py` implements it today.
-
-Note: cost/usage analytics (`get_usage`), fuzzy/typo-tolerant search
-(`fuzzy.py`), and reranking beyond plain RRF (`rerank.py`) were originally
-scoped out of v1 but have since been implemented.
