@@ -196,7 +196,9 @@ def doctor(fix: bool = False) -> dict:
             )
             conn = db.connect()
             db.init_db(conn)
-            backfill_result = ingest.backfill(conn)
+            # distinct trigger (vs. plain "backfill") so run_history shows
+            # *why* the db was replaced, not just that a backfill happened.
+            backfill_result = ingest.backfill(conn, trigger="doctor_fix_rebuild")
             result["fixes_applied"].append({"action": "rebuild", "result": backfill_result})
             result["db_integrity"] = _check_db_integrity(conn)
 

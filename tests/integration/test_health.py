@@ -83,3 +83,25 @@ def test_doctor_db_integrity_ok_on_healthy_db(conn, tmp_env):
 
     result = health.doctor(fix=False)
     assert result["db_integrity"]["ok"] is True
+
+
+def test_doctor_with_fix_quarantines_and_rebuilds_corrupt_db_with_audit_row(tmp_env):
+    from transcript_search_v2 import config
+
+    config.ensure_data_dir()
+    config.DB_PATH.write_bytes(b"not a real sqlite file")
+
+    result = health.doctor(fix=True)
+
+    assert any(f["action"] == "quarantine_corrupt_db" for f in result["fixes_applied"])
+    assert any(f["action"] == "rebuild" for f in result["fixes_applied"])
+    assert result["db_integrity"]["ok"] is True
+
+    conn = db.connect(read_only=True)
+    try:
+        row = conn.execute(
+            "SELECT trigger FROM run_history WHERE trigger = 'doctor_fix_rebuild'"
+        ).fetchone()
+        assert row is not None
+    finally:
+        conn.close()
