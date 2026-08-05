@@ -98,7 +98,13 @@ def _run_keyword_query(
         LIMIT ? OFFSET ?
     """
     params.extend([limit, offset])
-    rows = conn.execute(sql, params).fetchall()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as e:
+        # a query containing a `"` bypasses _sanitize_fts_query's per-token
+        # quoting (to leave native FTS5 phrase/boolean syntax reachable), so
+        # a malformed expression here is a bad user query, not a server bug.
+        raise ValueError(f"invalid search query syntax: {sanitized_query!r} ({e})") from e
     return [_row_to_result(r, r["bm25_score"]) for r in rows]
 
 

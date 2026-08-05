@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from transcript_search_v2 import db, embed, ingest
 from transcript_search_v2.tools import search, temporal
 
@@ -205,6 +207,15 @@ def test_list_sessions_and_get_period(conn, tmp_env):
     assert len(period) == 2
     out_of_range = temporal.get_period("2026-07-21", "2026-07-22", conn=conn)
     assert out_of_range == []
+
+
+def test_keyword_search_malformed_fts_query_raises_value_error(conn, tmp_env):
+    copy_fixture(tmp_env["watch_root"], "normal_exchange.jsonl")
+    ingest.backfill(conn)
+    # unbalanced quote: contains '"' so _sanitize_fts_query passes it through
+    # to FTS5 raw, and an unterminated phrase is invalid MATCH syntax.
+    with pytest.raises(ValueError, match="invalid search query syntax"):
+        search.keyword_search('"unterminated phrase', conn=conn)
 
 
 def test_keyword_search_offset_pages_through_results(conn, tmp_env):
