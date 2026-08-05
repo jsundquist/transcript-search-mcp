@@ -21,6 +21,12 @@ from __future__ import annotations
 import sqlite3
 
 MAX_EDIT_DISTANCE = 2
+# Bounds the worst-case per-token vocab-scan + edit-distance cost a
+# many-token or pathologically long garbage query can trigger -- this runs
+# by default on every zero-result strict search, so it needs a cap even
+# though it's "only" a fallback path.
+MAX_TOKENS = 20
+MAX_TOKEN_LEN = 30
 
 
 def _edit_distance(a: str, b: str) -> int:
@@ -82,7 +88,10 @@ def correct_query(
     tokens = query.split()
     corrected: list[str] = []
     changed = False
-    for token in tokens:
+    for i, token in enumerate(tokens):
+        if i >= MAX_TOKENS or len(token) > MAX_TOKEN_LEN:
+            corrected.append(token)
+            continue
         replacement = _closest_vocab_term(conn, token, max_distance)
         if replacement is not None:
             corrected.append(replacement)
