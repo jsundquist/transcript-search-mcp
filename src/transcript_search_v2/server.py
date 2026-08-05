@@ -64,6 +64,7 @@ mcp = MCPServer("transcript-search-v2", lifespan=lifespan)
 # negative or absurdly large value can't request an unbounded result set --
 # SQLite treats a negative LIMIT as "no limit", so this isn't just tidiness.
 _MIN_LIMIT, _MAX_LIMIT = 1, 500
+_MAX_OFFSET = 2000
 _MAX_WINDOW = 100
 
 
@@ -72,7 +73,7 @@ def _clamp_limit(limit: int) -> int:
 
 
 def _clamp_offset(offset: int) -> int:
-    return max(0, offset)
+    return max(0, min(_MAX_OFFSET, offset))
 
 
 def _clamp_window(n: int) -> int:
