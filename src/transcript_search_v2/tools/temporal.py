@@ -9,6 +9,7 @@ from pathlib import Path
 from transcript_search_v2 import db
 from transcript_search_v2.extract import render_full
 from transcript_search_v2.schema import OtherRecord, TranscriptRecord, parse_line
+from transcript_search_v2.sqlutil import escape_like, project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
 
 
@@ -27,8 +28,8 @@ def list_sessions(
         clauses = []
         params: list = []
         if project:
-            clauses.append("project_cwd LIKE ?")
-            params.append(f"%{project}%")
+            clauses.append("project_cwd LIKE ? ESCAPE '\\'")
+            params.append(f"%{escape_like(project)}%")
         if utc_from:
             clauses.append("last_ts >= ?")
             params.append(utc_from)
@@ -67,9 +68,7 @@ def get_period(
         params: list = [utc_from, utc_to]
         if not include_low_signal:
             clauses.append("signal != 'low'")
-        if project:
-            clauses.append("project_cwd LIKE ?")
-            params.append(f"%{project}%")
+        clauses.extend(project_date_clause(project, None, None, params, project_col="project_cwd", ts_col="timestamp"))
         sql = f"""
             SELECT id, session_id, project_cwd, timestamp, role, block_type, signal, text
             FROM chunks

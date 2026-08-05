@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from transcript_search_v2 import config, db, ingest
+from transcript_search_v2.sqlutil import escape_like
 
 
 def status(conn: sqlite3.Connection | None = None) -> dict:
@@ -110,42 +111,50 @@ def prune(
         clauses = ["timestamp < ?"]
         params: list = [cutoff]
         if project:
-            clauses.append("project_cwd LIKE ?")
-            params.append(f"%{project}%")
+            clauses.append("project_cwd LIKE ? ESCAPE '\\'")
+            params.append(f"%{escape_like(project)}%")
         where = " AND ".join(clauses)
 
-        chunk_rowids = [r[0] for r in conn.execute(f"SELECT rowid FROM chunks WHERE {where}", params)]
+        chunk_count = conn.execute(f"SELECT COUNT(*) FROM chunks WHERE {where}", params).fetchone()[0]
         llm_call_count = conn.execute(f"SELECT COUNT(*) FROM llm_calls WHERE {where}", params).fetchone()[0]
 
         if dry_run:
             return {
                 "dry_run": True,
                 "cutoff": cutoff,
-                "chunks_to_delete": len(chunk_rowids),
+                "chunks_to_delete": chunk_count,
                 "llm_calls_to_delete": llm_call_count,
             }
 
         run_id = db.start_run(conn, trigger=f"prune(cutoff={cutoff}, project={project!r})")
 
-        if chunk_rowids:
-            placeholders = ",".join("?" for _ in chunk_rowids)
-            conn.execute(f"DELETE FROM chunks_fts WHERE rowid IN ({placeholders})", chunk_rowids)
-            conn.execute(f"DELETE FROM chunks_vec WHERE chunk_rowid IN ({placeholders})", chunk_rowids)
-            conn.execute(f"DELETE FROM chunks WHERE rowid IN ({placeholders})", chunk_rowids)
+        # Subqueries (not a materialized Python rowid list bound as one `?`
+        # per row) so a large prune can't exceed SQLite's bound-parameter
+        # limit. chunks_fts/chunks_vec must be deleted first -- they resolve
+        # matching rowids via a subquery against `chunks`, which the final
+        # DELETE below removes.
+        if chunk_count:
+            conn.execute(
+                f"DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE {where})", params
+            )
+            conn.execute(
+                f"DELETE FROM chunks_vec WHERE chunk_rowid IN (SELECT rowid FROM chunks WHERE {where})", params
+            )
+            conn.execute(f"DELETE FROM chunks WHERE {where}", params)
         conn.execute(f"DELETE FROM llm_calls WHERE {where}", params)
         # chunks_added is repurposed here to record deletions (this run removes
         # rather than adds rows) -- distinguishable from an ingest run via the
         # "prune(...)" trigger prefix, so status()/history readers aren't misled
         # into thinking the corpus grew.
         db.finish_run(
-            conn, run_id, files_touched=0, chunks_added=len(chunk_rowids) + llm_call_count
+            conn, run_id, files_touched=0, chunks_added=chunk_count + llm_call_count
         )
         conn.commit()
 
         return {
             "dry_run": False,
             "cutoff": cutoff,
-            "chunks_deleted": len(chunk_rowids),
+            "chunks_deleted": chunk_count,
             "llm_calls_deleted": llm_call_count,
         }
     finally:

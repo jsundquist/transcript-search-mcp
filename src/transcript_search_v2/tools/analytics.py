@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 
 from transcript_search_v2 import db
+from transcript_search_v2.sqlutil import COST_EXPR_SQL, project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
 
 _GROUP_BY_COLUMNS = {
@@ -39,17 +40,10 @@ def get_usage(
     conn = conn or db.connect(read_only=True)
     try:
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
-        clauses: list[str] = []
         params: list = []
-        if project:
-            clauses.append("lc.project_cwd LIKE ?")
-            params.append(f"%{project}%")
-        if utc_from:
-            clauses.append("lc.timestamp >= ?")
-            params.append(utc_from)
-        if utc_to:
-            clauses.append("lc.timestamp <= ?")
-            params.append(utc_to)
+        clauses = project_date_clause(
+            project, utc_from, utc_to, params, project_col="lc.project_cwd", ts_col="lc.timestamp"
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
         group_col = _GROUP_BY_COLUMNS[group_by]
@@ -61,12 +55,7 @@ def get_usage(
                 sum(lc.output_tokens) AS output_tokens,
                 sum(lc.cache_write_tokens) AS cache_write_tokens,
                 sum(lc.cache_read_tokens) AS cache_read_tokens,
-                sum(
-                    lc.input_tokens * mp.input_cost_per_token
-                    + lc.output_tokens * mp.output_cost_per_token
-                    + lc.cache_write_tokens * COALESCE(mp.cache_write_cost_per_token, 0)
-                    + lc.cache_read_tokens * COALESCE(mp.cache_read_cost_per_token, 0)
-                ) AS cost_usd,
+                sum({COST_EXPR_SQL}) AS cost_usd,
                 min(lc.timestamp) AS first_call,
                 max(lc.timestamp) AS last_call
             FROM llm_calls lc

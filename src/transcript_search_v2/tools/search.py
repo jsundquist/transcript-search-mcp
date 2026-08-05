@@ -7,6 +7,7 @@ import sqlite3
 import sqlite_vec
 
 from transcript_search_v2 import db, embed, fuzzy, rerank as rerank_module
+from transcript_search_v2.sqlutil import project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
 
 
@@ -37,16 +38,9 @@ def _sidechain_clause(include_sidechains: bool) -> str:
 def _filter_clauses(
     project: str | None, utc_from: str | None, utc_to: str | None, params: list
 ) -> str:
-    clauses = []
-    if project:
-        clauses.append("c.project_cwd LIKE ?")
-        params.append(f"%{project}%")
-    if utc_from:
-        clauses.append("c.timestamp >= ?")
-        params.append(utc_from)
-    if utc_to:
-        clauses.append("c.timestamp <= ?")
-        params.append(utc_to)
+    clauses = project_date_clause(
+        project, utc_from, utc_to, params, project_col="c.project_cwd", ts_col="c.timestamp"
+    )
     return " ".join(f"AND {c}" for c in clauses)
 
 
