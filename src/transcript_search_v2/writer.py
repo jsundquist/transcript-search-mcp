@@ -24,14 +24,26 @@ from transcript_search_v2 import config, db, embed, ingest
 logger = logging.getLogger(__name__)
 
 
+def _apply_embeddings(conn: sqlite3.Connection, rowids: list[int], vectors: list) -> None:
+    for rowid, vector in zip(rowids, vectors):
+        db.upsert_embedding(conn, rowid, vector)
+    conn.commit()
+
+
 def drain_embeddings_batch(conn: sqlite3.Connection, batch_size: int) -> tuple[int, bool]:
-    """Embed one pending batch. Returns (chunks_embedded, had_batch) --
-    had_batch=False means the queue was empty (caller should back off);
-    chunks_embedded=0 with had_batch=True means a batch existed but
+    """Fetch, embed, and write one pending batch synchronously. Returns
+    (chunks_embedded, had_batch) -- had_batch=False means the queue was
+    empty; chunks_embedded=0 with had_batch=True means a batch existed but
     embedding it failed (logged here, not raised), so one bad chunk never
-    aborts the caller's whole drain loop. Shared by Writer._embed_loop and
-    health.doctor(fix=True)'s embed-backlog fix, which used to duplicate
-    this without the failure handling."""
+    aborts the caller's whole drain loop.
+
+    Fully synchronous and does all its own DB access on the calling
+    thread -- safe to call directly (as health.doctor(fix=True) does) but
+    NOT via asyncio.to_thread against a connection created on the event
+    loop thread, since sqlite3 connections are single-thread-bound by
+    default. Writer._embed_loop instead offloads only the embed_texts call
+    via to_thread and applies results with _apply_embeddings on the loop
+    thread -- see that method."""
     batch = db.pending_embeddings(conn, limit=batch_size)
     if not batch:
         return 0, False
@@ -44,9 +56,7 @@ def drain_embeddings_batch(conn: sqlite3.Connection, batch_size: int) -> tuple[i
         logger.exception("embedding batch failed")
         return 0, True
 
-    for rowid, vector in zip(rowids, vectors):
-        db.upsert_embedding(conn, rowid, vector)
-    conn.commit()
+    _apply_embeddings(conn, rowids, vectors)
     return len(batch), True
 
 
@@ -106,10 +116,18 @@ class Writer:
 
     async def _embed_loop(self) -> None:
         while True:
-            embedded, had_batch = await asyncio.to_thread(
-                drain_embeddings_batch, self.conn, config.EMBED_BATCH_SIZE
-            )
-            if not had_batch:
+            pending = db.pending_embeddings(self.conn, limit=config.EMBED_BATCH_SIZE)
+            if not pending:
                 await asyncio.sleep(1.0)
-            elif embedded == 0:
-                await asyncio.sleep(2.0)  # batch existed but failed -- back off before retrying
+                continue
+
+            rowids = [rowid for rowid, _ in pending]
+            texts = [text for _, text in pending]
+            try:
+                vectors = await asyncio.to_thread(embed.embed_texts, texts)
+            except Exception:  # noqa: BLE001
+                logger.exception("embedding batch failed, will retry")
+                await asyncio.sleep(2.0)
+                continue
+
+            _apply_embeddings(self.conn, rowids, vectors)
