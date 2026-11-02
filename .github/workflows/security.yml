@@ -1,3 +1,12 @@
+# Reference security workflow for Python repos (uv). What each job protects against:
+#   secrets            - credentials committed to the repo or its git history (gitleaks).
+#   dependency-audit   - known CVEs published after the last change (pip-audit, weekly schedule).
+#   workflow-lint      - broken or unsafe GitHub Actions syntax and expressions (actionlint).
+#   zizmor             - workflow security flaws: injection, unpinned actions, excess permissions.
+#   dependency-review  - PRs that add dependencies with known high/critical advisories.
+# Per-push and per-PR pip-audit lives in ci.yml (the audit job).
+# When copying: pin every action by full commit SHA and keep persist-credentials: false.
+
 name: Security
 on:
   push:
