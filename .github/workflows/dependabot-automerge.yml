@@ -19,8 +19,29 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Major bumps are left for manual review.
-      - if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      # Grouped PRs carry several dependencies, so check every entry rather than the
+      # single top-level outputs. Fails closed: anything unexpected means no merge.
+      # Only direct uv dev-dependency patch/minor updates are merged; runtime and
+      # transitive dependencies, majors and every GitHub Actions PR stay open.
+      - id: decide
+        env:
+          UPDATED_DEPENDENCIES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+          if jq -e '
+            length > 0 and all(
+              .dependencyType == "direct:development"
+              and (.updateType | IN("version-update:semver-patch", "version-update:semver-minor"))
+              and .packageEcosystem == "uv"
+            )
+          ' <<< "$UPDATED_DEPENDENCIES" > /dev/null; then
+            echo "merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Not a uv dev-dependency patch/minor update; leaving the PR open for review"
+          fi
+
+      - if: steps.decide.outputs.merge == 'true'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
