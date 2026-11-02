@@ -2,6 +2,12 @@ name: SBOM
 on:
   push:
     branches: [main]
+  # Dependabot PRs are auto-merged with GITHUB_TOKEN, and those merges do not fire
+  # the push trigger above. This daily run uploads the SBOM for any such merge, but
+  # skips commits that already have a successful run (the dashboard keeps only the
+  # newest uploads per project, so duplicates would push real history out).
+  schedule:
+    - cron: '23 7 * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -15,13 +21,33 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A successful run for this commit means it was already uploaded, either by that
+      # run or by an earlier one it skipped for. The current run is still in progress,
+      # so it never counts itself. Push and manual runs always upload.
+      - id: check
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          done_runs=$(gh run list --workflow SBOM --commit "$SHA" --status success --json databaseId --jq length)
+          if [ "$done_runs" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::SBOM for $SHA was already uploaded; skipping"
+          fi
+
+      - if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # jsundquist/sbom has no tagged releases yet, so this pins a commit on its main.
-      - uses: jsundquist/sbom@38774aeb10a1bc9edf7617a95a4e7fd2ebbee7d3
+      - if: steps.check.outputs.skip != 'true'
+        uses: jsundquist/sbom@38774aeb10a1bc9edf7617a95a4e7fd2ebbee7d3
         with:
           dashboard-url: https://sbom.digital-portfolio.net
           api-token: ${{ secrets.SBOM_DASHBOARD_TOKEN }}
