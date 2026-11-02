@@ -22,7 +22,9 @@ class FakePlugin:
     def is_mine(self, path: Path) -> bool:
         return path.suffix == ".fake"
 
-    def parse_and_extract(self, raw_line, *, source_line_no, project_cwd_fallback, resolve_tool_name):
+    def parse_and_extract(
+        self, raw_line, *, source_line_no, project_cwd_fallback, resolve_tool_name
+    ):
         if not raw_line.strip():
             return LineResult(kind="skip")
         chunk = Chunk(
@@ -58,9 +60,7 @@ def test_backfill_routes_files_to_the_owning_plugin(conn, tmp_env):
     assert result["files_discovered"] == 2
     assert result["files_touched"] == 2
 
-    claude_rows = conn.execute(
-        "SELECT text FROM chunks WHERE session_id = 'ne-session'"
-    ).fetchall()
+    claude_rows = conn.execute("SELECT text FROM chunks WHERE session_id = 'ne-session'").fetchall()
     assert len(claude_rows) > 0
 
     fake_rows = conn.execute(

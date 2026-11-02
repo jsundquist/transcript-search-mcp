@@ -100,8 +100,16 @@ def keyword_search(
     fuzzy_corrected_query when this kicks in). limit is capped at 500;
     offset pages past it."""
     return search.keyword_search(
-        query, project, date_from, date_to, roles, include_low_signal, include_sidechains,
-        _clamp_limit(limit), _clamp_offset(offset), fuzzy_fallback,
+        query,
+        project,
+        date_from,
+        date_to,
+        roles,
+        include_low_signal,
+        include_sidechains,
+        _clamp_limit(limit),
+        _clamp_offset(offset),
+        fuzzy_fallback,
     )
 
 
@@ -120,8 +128,14 @@ def semantic_search(
     relevant content even without literal keyword overlap. limit is capped
     at 500; offset pages past it."""
     return search.semantic_search(
-        query, project, date_from, date_to, include_low_signal, include_sidechains,
-        _clamp_limit(limit), _clamp_offset(offset),
+        query,
+        project,
+        date_from,
+        date_to,
+        include_low_signal,
+        include_sidechains,
+        _clamp_limit(limit),
+        _clamp_offset(offset),
     )
 
 
@@ -142,8 +156,15 @@ def hybrid_search(
     sure whether a literal or a meaning-based match is more likely to find
     what you're after. limit is capped at 500; offset pages past it."""
     return search.hybrid_search(
-        query, project, date_from, date_to, include_low_signal, include_sidechains,
-        _clamp_limit(limit), _clamp_offset(offset), rerank,
+        query,
+        project,
+        date_from,
+        date_to,
+        include_low_signal,
+        include_sidechains,
+        _clamp_limit(limit),
+        _clamp_offset(offset),
+        rerank,
     )
 
 
@@ -158,7 +179,9 @@ def list_sessions(
     """List Claude Code sessions, most recent first, optionally filtered by
     project (substring match) and/or date range. limit is capped at 500;
     offset pages past it."""
-    return temporal.list_sessions(project, date_from, date_to, _clamp_limit(limit), _clamp_offset(offset))
+    return temporal.list_sessions(
+        project, date_from, date_to, _clamp_limit(limit), _clamp_offset(offset)
+    )
 
 
 @mcp.tool()

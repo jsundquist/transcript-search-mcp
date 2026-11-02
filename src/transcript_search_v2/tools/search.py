@@ -7,7 +7,8 @@ import sqlite3
 
 import sqlite_vec
 
-from transcript_search_v2 import db, embed, fuzzy, rerank as rerank_module
+from transcript_search_v2 import db, embed, fuzzy
+from transcript_search_v2 import rerank as rerank_module
 from transcript_search_v2.sqlutil import project_date_clause
 from transcript_search_v2.timeutil import local_range_to_utc
 
@@ -136,8 +137,16 @@ def keyword_search(
     try:
         utc_from, utc_to = local_range_to_utc(date_from, date_to)
         results = _run_keyword_query(
-            conn, _sanitize_fts_query(query), project, utc_from, utc_to,
-            roles, include_low_signal, include_sidechains, limit, offset,
+            conn,
+            _sanitize_fts_query(query),
+            project,
+            utc_from,
+            utc_to,
+            roles,
+            include_low_signal,
+            include_sidechains,
+            limit,
+            offset,
         )
         # An empty page can mean either "zero total matches" or "offset
         # overshot the real result count" -- _run_keyword_query has no
@@ -153,8 +162,16 @@ def keyword_search(
             return results
 
         fallback_results = _run_keyword_query(
-            conn, _sanitize_fts_query(corrected), project, utc_from, utc_to,
-            roles, include_low_signal, include_sidechains, limit, offset,
+            conn,
+            _sanitize_fts_query(corrected),
+            project,
+            utc_from,
+            utc_to,
+            roles,
+            include_low_signal,
+            include_sidechains,
+            limit,
+            offset,
         )
         for r in fallback_results:
             r["fuzzy_corrected_query"] = corrected
@@ -241,14 +258,24 @@ def hybrid_search(
     try:
         fetch_limit = max((limit + offset) * 3, 30)
         kw_results = keyword_search(
-            query, project, date_from, date_to,
-            include_low_signal=include_low_signal, include_sidechains=include_sidechains,
-            limit=fetch_limit, conn=conn,
+            query,
+            project,
+            date_from,
+            date_to,
+            include_low_signal=include_low_signal,
+            include_sidechains=include_sidechains,
+            limit=fetch_limit,
+            conn=conn,
         )
         sem_results = semantic_search(
-            query, project, date_from, date_to,
-            include_low_signal=include_low_signal, include_sidechains=include_sidechains,
-            limit=fetch_limit, conn=conn,
+            query,
+            project,
+            date_from,
+            date_to,
+            include_low_signal=include_low_signal,
+            include_sidechains=include_sidechains,
+            limit=fetch_limit,
+            conn=conn,
         )
 
         rrf_k = 60
@@ -288,7 +315,7 @@ def hybrid_search(
         if rerank:
             out = rerank_module.rerank(out, limit=limit, offset=offset)
         else:
-            out = out[offset:offset + limit]
+            out = out[offset : offset + limit]
         return out
     finally:
         if own_conn:

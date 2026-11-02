@@ -56,9 +56,7 @@ def test_tool_result_resolves_tool_name_and_type_aware_truncation():
         uuid="u1",
         message={
             "role": "user",
-            "content": [
-                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "x" * 10_000}
-            ],
+            "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "x" * 10_000}],
         },
     )
     chunks = extract_chunks(
@@ -81,7 +79,9 @@ def test_tool_result_default_truncation_when_tool_unresolved():
         uuid="u1",
         message={
             "role": "user",
-            "content": [{"type": "tool_result", "tool_use_id": "toolu_unknown", "content": "y" * 5000}],
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_unknown", "content": "y" * 5000}
+            ],
         },
     )
     chunks = extract_chunks(rec, source_line_no=1, project_cwd_fallback="/tmp/proj")
@@ -95,7 +95,9 @@ def test_image_block_becomes_attachment_placeholder_not_base64():
         uuid="u1",
         message={
             "role": "user",
-            "content": [{"type": "image", "content": {"media_type": "image/png", "data": "base64stuff"}}],
+            "content": [
+                {"type": "image", "content": {"media_type": "image/png", "data": "base64stuff"}}
+            ],
         },
     )
     chunks = extract_chunks(rec, source_line_no=1, project_cwd_fallback="/tmp/proj")

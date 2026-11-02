@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 from transcript_search_v2 import config, db, ingest
 from transcript_search_v2.sqlutil import escape_like
@@ -16,7 +15,9 @@ def status(conn: sqlite3.Connection | None = None) -> dict:
     try:
         files_tracked = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
         chunks_total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-        chunks_embedded = conn.execute("SELECT COUNT(*) FROM chunks WHERE embedded = 1").fetchone()[0]
+        chunks_embedded = conn.execute("SELECT COUNT(*) FROM chunks WHERE embedded = 1").fetchone()[
+            0
+        ]
         sessions_total = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         last_run = conn.execute(
             "SELECT started_at, finished_at, trigger, files_touched, chunks_added, error "
@@ -104,7 +105,7 @@ def prune(
     own_conn = conn is None
     conn = conn or db.connect(read_only=False)
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime(
+        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).strftime(
             "%Y-%m-%dT%H:%M:%S.%f"
         )[:-3] + "Z"
 
@@ -115,8 +116,12 @@ def prune(
             params.append(f"%{escape_like(project)}%")
         where = " AND ".join(clauses)
 
-        chunk_count = conn.execute(f"SELECT COUNT(*) FROM chunks WHERE {where}", params).fetchone()[0]
-        llm_call_count = conn.execute(f"SELECT COUNT(*) FROM llm_calls WHERE {where}", params).fetchone()[0]
+        chunk_count = conn.execute(f"SELECT COUNT(*) FROM chunks WHERE {where}", params).fetchone()[
+            0
+        ]
+        llm_call_count = conn.execute(
+            f"SELECT COUNT(*) FROM llm_calls WHERE {where}", params
+        ).fetchone()[0]
 
         if dry_run:
             return {
@@ -135,10 +140,12 @@ def prune(
         # DELETE below removes.
         if chunk_count:
             conn.execute(
-                f"DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE {where})", params
+                f"DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE {where})",
+                params,
             )
             conn.execute(
-                f"DELETE FROM chunks_vec WHERE chunk_rowid IN (SELECT rowid FROM chunks WHERE {where})", params
+                f"DELETE FROM chunks_vec WHERE chunk_rowid IN (SELECT rowid FROM chunks WHERE {where})",
+                params,
             )
             conn.execute(f"DELETE FROM chunks WHERE {where}", params)
         conn.execute(f"DELETE FROM llm_calls WHERE {where}", params)
@@ -146,9 +153,7 @@ def prune(
         # rather than adds rows) -- distinguishable from an ingest run via the
         # "prune(...)" trigger prefix, so status()/history readers aren't misled
         # into thinking the corpus grew.
-        db.finish_run(
-            conn, run_id, files_touched=0, chunks_added=chunk_count + llm_call_count
-        )
+        db.finish_run(conn, run_id, files_touched=0, chunks_added=chunk_count + llm_call_count)
         conn.commit()
 
         return {

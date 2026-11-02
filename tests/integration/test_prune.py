@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -11,9 +11,9 @@ from ..conftest import copy_fixture
 
 
 def _make_old(conn, session_id: str, days_ago: int) -> str:
-    old_ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime(
-        "%Y-%m-%dT%H:%M:%S.%f"
-    )[:-3] + "Z"
+    old_ts = (datetime.now(UTC) - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%S.%f")[
+        :-3
+    ] + "Z"
     conn.execute("UPDATE chunks SET timestamp = ? WHERE session_id = ?", (old_ts, session_id))
     conn.execute("UPDATE llm_calls SET timestamp = ? WHERE session_id = ?", (old_ts, session_id))
     conn.commit()
@@ -39,6 +39,7 @@ def test_prune_deletes_only_matching_rows_and_their_fts_vec_rows(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "tool_use_result.jsonl", project_dir="-new-proj")
     ingest.backfill(conn)
     _make_old(conn, "ne-session", days_ago=100)
+    _make_old(conn, "tr-session", days_ago=1)  # fixture timestamps are fixed; keep it "new"
 
     pending = db.pending_embeddings(conn, limit=1000)
     vectors = embed.embed_texts([t for _, t in pending])
@@ -69,13 +70,20 @@ def test_prune_deletes_only_matching_rows_and_their_fts_vec_rows(conn, tmp_env):
     assert remaining_old == 0
     assert remaining_new == new_chunk_count_before  # untouched
 
-    assert conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0] == fts_before - old_chunk_count
-    assert conn.execute("SELECT COUNT(*) FROM chunks_vec").fetchone()[0] == vec_before - old_chunk_count
+    assert (
+        conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+        == fts_before - old_chunk_count
+    )
+    assert (
+        conn.execute("SELECT COUNT(*) FROM chunks_vec").fetchone()[0]
+        == vec_before - old_chunk_count
+    )
 
     # files/sessions bookkeeping is untouched by design
-    assert conn.execute(
-        "SELECT COUNT(*) FROM sessions WHERE session_id = 'ne-session'"
-    ).fetchone()[0] == 1
+    assert (
+        conn.execute("SELECT COUNT(*) FROM sessions WHERE session_id = 'ne-session'").fetchone()[0]
+        == 1
+    )
 
 
 def test_prune_project_filter_scopes_deletion(conn, tmp_env):
@@ -84,8 +92,12 @@ def test_prune_project_filter_scopes_deletion(conn, tmp_env):
     ingest.backfill(conn)
     _make_old(conn, "ne-session", days_ago=100)
     _make_old(conn, "tr-session", days_ago=100)
-    conn.execute("UPDATE chunks SET project_cwd = '/tmp/project-alpha' WHERE session_id = 'ne-session'")
-    conn.execute("UPDATE chunks SET project_cwd = '/tmp/project-beta' WHERE session_id = 'tr-session'")
+    conn.execute(
+        "UPDATE chunks SET project_cwd = '/tmp/project-alpha' WHERE session_id = 'ne-session'"
+    )
+    conn.execute(
+        "UPDATE chunks SET project_cwd = '/tmp/project-beta' WHERE session_id = 'tr-session'"
+    )
     conn.commit()
 
     result = admin.prune(older_than_days=30, project="alpha", dry_run=True, conn=conn)
@@ -94,7 +106,9 @@ def test_prune_project_filter_scopes_deletion(conn, tmp_env):
     ).fetchone()[0]
     assert result["chunks_to_delete"] == alpha_count
 
-    result_none = admin.prune(older_than_days=30, project="nonexistent-project", dry_run=True, conn=conn)
+    result_none = admin.prune(
+        older_than_days=30, project="nonexistent-project", dry_run=True, conn=conn
+    )
     assert result_none["chunks_to_delete"] == 0
 
 
@@ -109,7 +123,6 @@ def test_prune_writes_run_history_row_on_delete(conn, tmp_env):
     ingest.backfill(conn)
     _make_old(conn, "ne-session", days_ago=100)
 
-    runs_before = conn.execute("SELECT COUNT(*) FROM run_history").fetchone()[0]
     admin.prune(older_than_days=30, dry_run=False, conn=conn)
     runs_after = conn.execute(
         "SELECT COUNT(*) FROM run_history WHERE trigger LIKE 'prune(%'"

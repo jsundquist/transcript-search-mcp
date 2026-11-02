@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 
 # --- Paths -------------------------------------------------------------
 
-DATA_DIR = Path(os.environ.get("TRANSCRIPT_SEARCH_DATA_DIR", "~/.transcript-search-v2")).expanduser()
+DATA_DIR = Path(
+    os.environ.get("TRANSCRIPT_SEARCH_DATA_DIR", "~/.transcript-search-v2")
+).expanduser()
 DB_PATH = DATA_DIR / "index.db"
 
 WATCH_ROOT = Path(os.environ.get("TRANSCRIPT_SEARCH_WATCH_ROOT", "~/.claude/projects")).expanduser()

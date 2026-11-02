@@ -86,7 +86,9 @@ class Writer:
     async def enqueue_file(self, path: Path) -> None:
         await self._ingest_queue.put(path)
 
-    async def enqueue_reindex(self, project: str | None = None, session_id: str | None = None) -> int:
+    async def enqueue_reindex(
+        self, project: str | None = None, session_id: str | None = None
+    ) -> int:
         """Manual reindex trigger -- same queue as the watcher, so it can
         never race a concurrent watcher event for the same file."""
         files = ingest.discover_files()

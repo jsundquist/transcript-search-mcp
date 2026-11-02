@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_PLUGINS: list[SourcePlugin] = [ClaudeCodePlugin()]
 
 
-def discover_files(root: Path | None = None, plugins: list[SourcePlugin] | None = None) -> list[Path]:
+def discover_files(
+    root: Path | None = None, plugins: list[SourcePlugin] | None = None
+) -> list[Path]:
     plugins = plugins if plugins is not None else DEFAULT_PLUGINS
     files: list[Path] = []
     for plugin in plugins:
@@ -117,8 +119,15 @@ def ingest_file(
         # Nothing new and complete to parse, but stat changed (e.g. truncated
         # write in progress) -- still refresh last_seen so we don't re-stat forever.
         db.upsert_file_state(
-            conn, path_str, session_id, project_dir, None, byte_offset,
-            lines_read_so_far, stat.st_mtime, stat.st_size,
+            conn,
+            path_str,
+            session_id,
+            project_dir,
+            None,
+            byte_offset,
+            lines_read_so_far,
+            stat.st_mtime,
+            stat.st_size,
         )
         return IngestResult(path_str, 0, 0, 0)
 
@@ -174,8 +183,15 @@ def ingest_file(
         )
 
     db.upsert_file_state(
-        conn, path_str, session_id, project_dir, project_cwd, new_offset,
-        lines_read_so_far, stat.st_mtime, stat.st_size,
+        conn,
+        path_str,
+        session_id,
+        project_dir,
+        project_cwd,
+        new_offset,
+        lines_read_so_far,
+        stat.st_mtime,
+        stat.st_size,
     )
     conn.commit()
 
@@ -213,4 +229,8 @@ def backfill(
         db.finish_run(conn, run_id, files_touched, chunks_added, error)
         conn.commit()
 
-    return {"files_discovered": len(files), "files_touched": files_touched, "chunks_added": chunks_added}
+    return {
+        "files_discovered": len(files),
+        "files_touched": files_touched,
+        "chunks_added": chunks_added,
+    }

@@ -50,9 +50,7 @@ def test_keyword_search_excludes_sidechains_by_default(conn, tmp_env):
     ingest.backfill(conn)
     default_results = search.keyword_search("unique_sidechain_marker", conn=conn)
     assert default_results == []
-    included = search.keyword_search(
-        "unique_sidechain_marker", include_sidechains=True, conn=conn
-    )
+    included = search.keyword_search("unique_sidechain_marker", include_sidechains=True, conn=conn)
     assert len(included) == 1
 
 
@@ -65,9 +63,7 @@ def test_keyword_search_handles_hyphenated_terms(conn, tmp_env):
         "UPDATE chunks SET text = 'we should use sqlite-vec for this' WHERE message_uuid = 'ne-a1'"
     )
     conn.execute("DELETE FROM chunks_fts")
-    conn.execute(
-        "INSERT INTO chunks_fts(rowid, text) SELECT rowid, text FROM chunks"
-    )
+    conn.execute("INSERT INTO chunks_fts(rowid, text) SELECT rowid, text FROM chunks")
     conn.commit()
     results = search.keyword_search("sqlite-vec", conn=conn)
     assert any("sqlite-vec" in r["text"] for r in results)
@@ -166,9 +162,7 @@ def test_hybrid_search_rerank_false_skips_rerank_score(conn, tmp_env):
 def test_get_context_reads_full_untruncated_surrounding_messages(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "tool_use_result.jsonl")
     ingest.backfill(conn)
-    row = conn.execute(
-        "SELECT id, session_id FROM chunks WHERE message_uuid = 'tr-a2'"
-    ).fetchone()
+    row = conn.execute("SELECT id, session_id FROM chunks WHERE message_uuid = 'tr-a2'").fetchone()
     ctx = temporal.get_context(
         row["session_id"], around_chunk_id=row["id"], before=5, after=5, conn=conn
     )

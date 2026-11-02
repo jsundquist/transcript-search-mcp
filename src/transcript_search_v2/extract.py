@@ -9,8 +9,8 @@ conversational text sharing its message.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from transcript_search_v2 import config
 from transcript_search_v2.schema import ContentBlock, TranscriptRecord

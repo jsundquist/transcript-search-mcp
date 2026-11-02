@@ -30,7 +30,9 @@ def conn(tmp_env):
     c.close()
 
 
-def copy_fixture(watch_root: Path, fixture_name: str, project_dir: str = "-tmp-fixture-proj") -> Path:
+def copy_fixture(
+    watch_root: Path, fixture_name: str, project_dir: str = "-tmp-fixture-proj"
+) -> Path:
     """Copy a fixture .jsonl into watch_root/<project_dir>/<sessionId>.jsonl,
     simulating a session file discovered under ~/.claude/projects/ -- the
     real filename is always the session UUID (matching the sessionId field
