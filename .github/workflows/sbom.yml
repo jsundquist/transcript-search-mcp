@@ -45,9 +45,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # jsundquist/sbom has no tagged releases yet, so this pins a commit on its main.
       - if: steps.check.outputs.skip != 'true'
-        uses: jsundquist/sbom@38774aeb10a1bc9edf7617a95a4e7fd2ebbee7d3
+        uses: jsundquist/sbom@ab01c17277825fe36a23e50a2e1a413f7b7a6810 # v1.0.0
         with:
           dashboard-url: https://sbom.digital-portfolio.net
           api-token: ${{ secrets.SBOM_DASHBOARD_TOKEN }}
