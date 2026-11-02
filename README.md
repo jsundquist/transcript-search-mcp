@@ -37,6 +37,9 @@ uv sync
 The embedding model downloads once on first use (~80MB, cached under
 `~/.cache/huggingface`).
 
+This package is not published to PyPI or any other registry, and no release artifacts are built,
+so signing, provenance and a release SBOM don't apply. Use it by cloning this repository.
+
 ## Register with Claude Code
 
 Copy the relevant block from `mcp.json.example` into your `~/.claude.json`
