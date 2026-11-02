@@ -11,7 +11,7 @@ quality demands it; this needs no new dependency and stays fast.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 SIGNAL_WEIGHT = {"high": 1.0, "medium": 0.85, "low": 0.6}
 DEFAULT_HALF_LIFE_DAYS = 30.0
@@ -19,7 +19,7 @@ DEFAULT_HALF_LIFE_DAYS = 30.0
 
 def _parse_ts(ts: str) -> datetime | None:
     try:
-        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -44,7 +44,7 @@ def rerank(
     RRF-score * signal-weight * recency-decay, re-sort, and return the
     `limit`-sized page starting at `offset`. Adds a "rerank_score" key; the
     original "score" is untouched."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rescored = []
     for r in results:
         base_score = r.get("score") or 0.0
@@ -54,4 +54,4 @@ def rerank(
         out["rerank_score"] = base_score * signal_mult * recency_mult
         rescored.append(out)
     rescored.sort(key=lambda r: -r["rerank_score"])
-    return rescored[offset:offset + limit]
+    return rescored[offset : offset + limit]

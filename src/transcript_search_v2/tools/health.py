@@ -14,7 +14,6 @@ import datetime as _dt
 import sqlite3
 import sys
 import time
-
 from pathlib import Path
 
 from transcript_search_v2 import config, db, ingest
@@ -28,6 +27,7 @@ def _redact_home(path: str) -> str:
     embed the OS username verbatim if relayed elsewhere by the calling
     agent."""
     return path.replace(str(Path.home()), "~", 1)
+
 
 _DEPENDENCIES = [
     ("mcp", "mcp"),
@@ -82,7 +82,10 @@ def _check_environment() -> dict:
 
 def _check_data_paths() -> dict:
     return {
-        "watch_root": {"path": _redact_home(str(config.WATCH_ROOT)), "exists": config.WATCH_ROOT.exists()},
+        "watch_root": {
+            "path": _redact_home(str(config.WATCH_ROOT)),
+            "exists": config.WATCH_ROOT.exists(),
+        },
         "db_path": {"path": _redact_home(str(config.DB_PATH)), "exists": config.DB_PATH.exists()},
     }
 
@@ -118,7 +121,7 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
             f"""
             SELECT sum({COST_EXPR_SQL})
             FROM llm_calls lc LEFT JOIN model_pricing mp ON lc.model = mp.model
-            WHERE {' AND '.join(clauses)}
+            WHERE {" AND ".join(clauses)}
             """,
             params,
         ).fetchone()
@@ -151,7 +154,11 @@ def _cost_alerts(conn: sqlite3.Connection) -> dict:
         "seven_day_avg_usd": round(seven_day_avg, 4),
         "pace_flag": pace_flag,
         "expensive_sessions": [
-            {"session_id": r["session_id"], "cost_usd": round(r["cost_usd"] or 0, 4), "calls": r["calls"]}
+            {
+                "session_id": r["session_id"],
+                "cost_usd": round(r["cost_usd"] or 0, 4),
+                "calls": r["calls"],
+            }
             for r in sessions_today
         ],
     }
@@ -231,7 +238,9 @@ def doctor(fix: bool = False) -> dict:
             # they'd raise an unhandled sqlite3.DatabaseError. Report the
             # diagnosis instead; the caller can retry with fix=True to
             # quarantine+rebuild.
-            result["note"] = "db failed integrity check -- call doctor(fix=True) to quarantine and rebuild"
+            result["note"] = (
+                "db failed integrity check -- call doctor(fix=True) to quarantine and rebuild"
+            )
             return result
 
         if not integrity["ok"] and fix:
@@ -240,14 +249,18 @@ def doctor(fix: bool = False) -> dict:
 
         files_tracked = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
         chunks_total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-        chunks_embedded = conn.execute("SELECT COUNT(*) FROM chunks WHERE embedded = 1").fetchone()[0]
+        chunks_embedded = conn.execute("SELECT COUNT(*) FROM chunks WHERE embedded = 1").fetchone()[
+            0
+        ]
         sessions_total = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         pending = chunks_total - chunks_embedded
 
         if fix and pending > 0:
             embedded_now = _fix_embed_backlog(conn)
             if embedded_now:
-                result["fixes_applied"].append({"action": "embed_backlog", "chunks_embedded": embedded_now})
+                result["fixes_applied"].append(
+                    {"action": "embed_backlog", "chunks_embedded": embedded_now}
+                )
                 chunks_embedded += embedded_now
                 pending -= embedded_now
 

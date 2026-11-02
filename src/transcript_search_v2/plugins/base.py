@@ -9,9 +9,10 @@ source is one new file here plus registering it -- ingest.py needs no changes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Literal, Protocol
+from typing import Literal, Protocol
 
 from transcript_search_v2.extract import Chunk, LLMCall
 from transcript_search_v2.schema import TranscriptRecord

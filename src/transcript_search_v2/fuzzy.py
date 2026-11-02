@@ -50,16 +50,13 @@ def _edit_distance(a: str, b: str) -> int:
     return prev[-1]
 
 
-def _closest_vocab_term(
-    conn: sqlite3.Connection, token: str, max_distance: int
-) -> str | None:
+def _closest_vocab_term(conn: sqlite3.Connection, token: str, max_distance: int) -> str | None:
     """Best vocabulary replacement for `token`, or None if nothing is close
     enough. Ties broken by document frequency (more common term wins) --
     prefer the correction a real typo is more likely to have meant."""
     lower = token.lower()
     rows = conn.execute(
-        "SELECT term, doc FROM chunks_vocab "
-        "WHERE length(term) BETWEEN ? AND ?",
+        "SELECT term, doc FROM chunks_vocab WHERE length(term) BETWEEN ? AND ?",
         (max(1, len(lower) - max_distance), len(lower) + max_distance),
     ).fetchall()
 

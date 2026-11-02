@@ -27,9 +27,7 @@ def test_get_usage_grouped_by_model_computes_cost_from_seeded_pricing(conn, tmp_
     copy_fixture(tmp_env["watch_root"], "split_response.jsonl")
     ingest.backfill(conn)
 
-    conn.execute(
-        "UPDATE llm_calls SET model = 'claude-sonnet-5' WHERE session_id = 'sp-session'"
-    )
+    conn.execute("UPDATE llm_calls SET model = 'claude-sonnet-5' WHERE session_id = 'sp-session'")
     conn.commit()
 
     rows = analytics.get_usage(group_by="model", conn=conn)
@@ -45,9 +43,7 @@ def test_get_usage_unpriced_model_returns_null_cost_not_error(conn, tmp_env):
     copy_fixture(tmp_env["watch_root"], "split_response.jsonl")
     ingest.backfill(conn)
 
-    conn.execute(
-        "UPDATE llm_calls SET model = 'some-future-model' WHERE session_id = 'sp-session'"
-    )
+    conn.execute("UPDATE llm_calls SET model = 'some-future-model' WHERE session_id = 'sp-session'")
     conn.commit()
 
     rows = analytics.get_usage(group_by="model", conn=conn)

@@ -68,11 +68,15 @@ def get_period(
         params: list = [utc_from, utc_to]
         if not include_low_signal:
             clauses.append("signal != 'low'")
-        clauses.extend(project_date_clause(project, None, None, params, project_col="project_cwd", ts_col="timestamp"))
+        clauses.extend(
+            project_date_clause(
+                project, None, None, params, project_col="project_cwd", ts_col="timestamp"
+            )
+        )
         sql = f"""
             SELECT id, session_id, project_cwd, timestamp, role, block_type, signal, text
             FROM chunks
-            WHERE {' AND '.join(clauses)}
+            WHERE {" AND ".join(clauses)}
             ORDER BY timestamp ASC
             LIMIT ?
         """
@@ -112,7 +116,7 @@ def _parse_all_lines(path: Path) -> list[tuple[int, TranscriptRecord]]:
     # empty/wrong context/session lookups.
     plugin = plugin_for(path, DEFAULT_PLUGINS)
     records: list[tuple[int, TranscriptRecord]] = []
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line_no, raw_line in enumerate(f, start=1):
             record = plugin.parse_raw(raw_line)
             if record is not None:
@@ -152,7 +156,7 @@ def get_context(
             ).fetchone()
             if row is None:
                 raise ValueError(f"unknown chunk_id: {around_chunk_id}")
-            anchor_uuid, anchor_line = row["message_uuid"], row["source_line_no"]
+            anchor_uuid = row["message_uuid"]
         elif message_uuid:
             row = conn.execute(
                 "SELECT message_uuid, source_line_no FROM chunks WHERE message_uuid = ? LIMIT 1",
@@ -160,7 +164,7 @@ def get_context(
             ).fetchone()
             if row is None:
                 raise ValueError(f"unknown message_uuid: {message_uuid}")
-            anchor_uuid, anchor_line = row["message_uuid"], row["source_line_no"]
+            anchor_uuid = row["message_uuid"]
         else:
             raise ValueError("must provide around_chunk_id or message_uuid")
 
@@ -178,8 +182,8 @@ def get_context(
         if anchor_pos is None:
             raise ValueError(f"anchor message {anchor_uuid} not found among conversational lines")
 
-        before_slice = conversational[max(0, anchor_pos - before):anchor_pos]
-        after_slice = conversational[anchor_pos + 1: anchor_pos + 1 + after]
+        before_slice = conversational[max(0, anchor_pos - before) : anchor_pos]
+        after_slice = conversational[anchor_pos + 1 : anchor_pos + 1 + after]
         anchor_ln, anchor_record = conversational[anchor_pos]
 
         return {

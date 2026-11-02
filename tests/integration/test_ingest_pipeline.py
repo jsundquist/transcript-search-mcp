@@ -23,7 +23,12 @@ def test_backfill_ingests_all_fixtures(conn, tmp_env):
 
     sessions = {r["session_id"] for r in conn.execute("SELECT session_id FROM sessions")}
     assert sessions == {
-        "ne-session", "tr-session", "th-session", "sk-session", "sp-session", "sc-session",
+        "ne-session",
+        "tr-session",
+        "th-session",
+        "sk-session",
+        "sp-session",
+        "sc-session",
     }
 
 
