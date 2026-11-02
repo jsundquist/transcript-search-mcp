@@ -2,6 +2,10 @@ name: SBOM
 on:
   push:
     branches: [main]
+  # Dependabot PRs are auto-merged with GITHUB_TOKEN, and those merges do not fire
+  # the push trigger above. This daily run uploads the SBOM for any such merge.
+  schedule:
+    - cron: '23 7 * * *'
   workflow_dispatch:
 
 permissions: {}
