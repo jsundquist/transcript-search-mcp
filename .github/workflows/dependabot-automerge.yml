@@ -9,7 +9,7 @@ jobs:
     # Never checks out or runs PR code; it only enables auto-merge, which GitHub
     # defers until the required status checks on main pass.
     if: github.event.pull_request.user.login == 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: write
